@@ -11,9 +11,8 @@
 > go build
 > cd ..
 > cd gui
-> 
->
-
+> meson setup build
+> meson compile -C build
 > cd ..
 > cd container
 > cargo build --release
