@@ -7,7 +7,7 @@
 // libgtk-4-dev
 
 > cd tui
-> go get tui
+> go get hackeros-steam-tui
 > go build
 > cd ..
 > cd gui
