@@ -1,1 +1,19 @@
+// crystal
+// golang
+// cargo
+// valac
 
+> cd tui
+> go get tui
+> go build
+> cd ..
+> cd gui
+> 
+>
+
+> cd ..
+> cd container
+> cargo build --release
+> cd ..
+> cd cli
+> crystal build main.cr --release
