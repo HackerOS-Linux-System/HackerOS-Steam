@@ -1,5 +1,6 @@
 using Gtk;
 using GLib;
+using Gio;
 
 namespace HackerOSSteam {
     public class MainWindow : Gtk.ApplicationWindow {
@@ -11,36 +12,43 @@ namespace HackerOSSteam {
 
         public MainWindow(Gtk.Application app) {
             Object(application: app);
-
             this.title = "HackerOS Steam";
             this.default_width = 400;
             this.default_height = 200;
-            this.border_width = 10;
+            this.margin_start = 10;
+            this.margin_end = 10;
+            this.margin_top = 10;
+            this.margin_bottom = 10;
 
             var box = new Gtk.Box(Gtk.Orientation.VERTICAL, 10);
-            this.add(box);
+            this.set_child(box);
 
             launch_button = new Gtk.Button.with_label("Uruchom Steam");
             launch_button.clicked.connect(on_launch_clicked);
-            box.pack_start(launch_button, true, true, 0);
+            launch_button.hexpand = true;
+            box.append(launch_button);
 
             update_button = new Gtk.Button.with_label("Zaktualizuj Kontener");
             update_button.clicked.connect(on_update_clicked);
-            box.pack_start(update_button, true, true, 0);
+            update_button.hexpand = true;
+            box.append(update_button);
 
             progress_bar = new Gtk.ProgressBar();
             progress_bar.set_visible(false);
-            box.pack_start(progress_bar, true, true, 0);
+            progress_bar.hexpand = true;
+            box.append(progress_bar);
 
             status_label = new Gtk.Label("Status: Gotowy");
-            box.pack_start(status_label, true, true, 0);
+            status_label.hexpand = true;
+            box.append(status_label);
         }
 
         private void on_launch_clicked() {
             status_label.set_text("Status: Uruchamianie Steam...");
             try {
-                string[] argv = {"~/.hackeros/HackerOS-Steam/container/hackerosteam-container", "run"};
-                Process.spawn_async(GLib.Environment.get_home_dir(), argv, null, SpawnFlags.SEARCH_PATH, null, null);
+                var cmd = Path.build_filename(Environment.get_home_dir(), ".hackeros", "HackerOS-Steam", "container", "hackerosteam-container");
+                const string[] argv = {cmd, "run"};
+                Process.spawn_async(Environment.get_home_dir(), argv, null, SpawnFlags.SEARCH_PATH, null, null);
                 status_label.set_text("Status: Steam uruchomiony!");
             } catch (Error e) {
                 status_label.set_text("Błąd: " + e.message);
@@ -52,30 +60,27 @@ namespace HackerOSSteam {
             progress_bar.set_visible(true);
             progress_bar.set_fraction(0.0);
             status_label.set_text("Status: Aktualizacja w toku...");
-
             try {
-                string[] argv = {"~/.hackeros/HackerOS-Steam/container/hackerosteam-container", "update"};
-                int stdin_fd, stdout_fd, stderr_fd;
+                var cmd = Path.build_filename(Environment.get_home_dir(), ".hackeros", "HackerOS-Steam", "container", "hackerosteam-container");
+                const string[] argv = {cmd, "update"};
+                int stdout_fd, stderr_fd;
                 Process.spawn_async_with_pipes(
-                    GLib.Environment.get_home_dir(),
+                    Environment.get_home_dir(),
                     argv,
                     null,
                     SpawnFlags.SEARCH_PATH | SpawnFlags.DO_NOT_REAP_CHILD,
                     null,
                     out update_pid,
-                    out stdin_fd,
+                    null,
                     out stdout_fd,
                     out stderr_fd
                 );
-
                 // Monitoruj output dla postępu
                 var stdout_channel = new IOChannel.unix_new(stdout_fd);
                 stdout_channel.add_watch(IOCondition.IN | IOCondition.HUP, on_update_output);
-
                 // Monitoruj stderr
                 var stderr_channel = new IOChannel.unix_new(stderr_fd);
                 stderr_channel.add_watch(IOCondition.IN | IOCondition.HUP, on_update_error);
-
                 ChildWatch.add(update_pid, on_update_finished);
             } catch (Error e) {
                 status_label.set_text("Błąd: " + e.message);
@@ -87,15 +92,15 @@ namespace HackerOSSteam {
             if ((condition & IOCondition.HUP) == IOCondition.HUP) {
                 return false;
             }
-
             string line;
             try {
                 channel.read_line(out line, null, null);
                 // Parsuj postęp, zakładając format "Progress: XX%" z outputu Rust
                 if (line.contains("Progress:")) {
-                    var parts = line.split(":");
-                    if (parts.length > 1) {
-                        double progress = double.parse(parts[1].strip().replace("%", "")) / 100.0;
+                    var colon_pos = line.index_of(":");
+                    if (colon_pos != -1) {
+                        var progress_str = line.substring(colon_pos + 1).strip().replace("%", "");
+                        double progress = double.parse(progress_str) / 100.0;
                         progress_bar.set_fraction(progress.clamp(0.0, 1.0));
                     }
                 }
@@ -110,7 +115,6 @@ namespace HackerOSSteam {
             if ((condition & IOCondition.HUP) == IOCondition.HUP) {
                 return false;
             }
-
             string line;
             try {
                 channel.read_line(out line, null, null);
@@ -139,12 +143,12 @@ namespace HackerOSSteam {
 
     public class Application : Gtk.Application {
         public Application() {
-            Object(application_id: "org.hackeros.steam.gui", flags: ApplicationFlags.FLAGS_NONE);
+            Object(application_id: "org.hackeros.steam.gui", flags: Gio.ApplicationFlags.DEFAULT_FLAGS);
         }
 
         protected override void activate() {
             var window = new MainWindow(this);
-            window.show_all();
+            window.present();
         }
     }
 }
