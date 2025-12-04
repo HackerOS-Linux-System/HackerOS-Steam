@@ -2,6 +2,9 @@
 // golang
 // cargo
 // valac
+// meson
+// cmake
+// libgtk-4-dev
 
 > cd tui
 > go get tui
