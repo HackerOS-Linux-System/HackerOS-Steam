@@ -25,19 +25,19 @@ var (
 )
 
 type model struct {
-	choices     []string
-	cursor      int
-	status      string
-	updating    bool
-	progress    float64
-	quit        bool
+	choices      []string
+	cursor       int
+	status       string
+	updating     bool
+	progress     float64
+	quit         bool
 	containerBin string
+	progressChan chan tea.Msg
 }
 
 func initialModel() model {
 	home, _ := os.UserHomeDir()
 	binPath := filepath.Join(home, ".hackeros", "HackerOS-Steam", "container", "hackerosteam-container")
-
 	return model{
 		choices: []string{
 			"Uruchom zwykły Steam",
@@ -58,6 +58,24 @@ func initialModel() model {
 func (m model) Init() tea.Cmd {
 	return nil
 }
+
+type progressMsg struct {
+	progress float64
+}
+
+type errorMsg struct {
+	err string
+}
+
+type statusMsg struct {
+	status string
+}
+
+type tickMsg struct{}
+
+type lineMsg string
+
+type doneMsg error
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -91,6 +109,50 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		m.status = msg.status
 		return m, nil
+	case tickMsg:
+		select {
+		case pmsg, ok := <-m.progressChan:
+			if !ok {
+				m.updating = false
+				m.progressChan = nil
+				return m, nil
+			}
+			switch msg := pmsg.(type) {
+			case lineMsg:
+				line := string(msg)
+				if strings.Contains(line, "Progress:") {
+					parts := strings.Split(line, ":")
+					if len(parts) > 1 {
+						pctStr := strings.TrimSpace(parts[1])
+						pctStr = strings.Replace(pctStr, "%", "", -1)
+						pct, err := strconv.ParseFloat(pctStr, 64)
+						if err == nil {
+							m.progress = pct / 100.0
+						}
+					}
+				}
+			case errorMsg:
+				m.updating = false
+				m.status = fmt.Sprintf("Błąd: %s", msg.err)
+				m.progressChan = nil
+			case doneMsg:
+				if msg != nil {
+					m.updating = false
+					m.status = fmt.Sprintf("Błąd: %s", msg.Error())
+				} else {
+					m.progress = 1.0
+					m.updating = false
+					m.status = "Aktualizacja ukończona!"
+				}
+				m.progressChan = nil
+			}
+		default:
+			// no message ready
+		}
+		if m.updating {
+			return m, tea.Tick(time.Millisecond*100, func(_ time.Time) tea.Msg { return tickMsg{} })
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -99,9 +161,7 @@ func (m model) View() string {
 	if m.quit {
 		return "Do widzenia!\n"
 	}
-
 	s := styleTitle.Render("HackerOS Steam TUI") + "\n\n"
-
 	for i, choice := range m.choices {
 		cursor := " "
 		if m.cursor == i {
@@ -111,14 +171,11 @@ func (m model) View() string {
 			s += styleNormal.Render(cursor + " " + choice) + "\n"
 		}
 	}
-
 	s += "\n" + styleStatus.Render(m.status) + "\n"
-
 	if m.updating {
 		bar := strings.Repeat("█", int(m.progress*50)) + strings.Repeat(" ", 50-int(m.progress*50))
 		s += styleProgress.Render(bar) + fmt.Sprintf(" %.0f%%", m.progress*100) + "\n"
 	}
-
 	return s
 }
 
@@ -154,18 +211,6 @@ func (m model) executeChoice() tea.Cmd {
 	return nil
 }
 
-type progressMsg struct {
-	progress float64
-}
-
-type errorMsg struct {
-	err string
-}
-
-type statusMsg struct {
-	status string
-}
-
 func (m model) runCommand(args []string) tea.Cmd {
 	return func() tea.Msg {
 		cmd := exec.Command(m.containerBin, args...)
@@ -179,35 +224,37 @@ func (m model) runCommand(args []string) tea.Cmd {
 
 func (m model) updateWithProgress() tea.Cmd {
 	return func() tea.Msg {
-		cmd := exec.Command(m.containerBin, "update")
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			return errorMsg{err: err.Error()}
-		}
-		if err := cmd.Start(); err != nil {
-			return errorMsg{err: err.Error()}
-		}
-
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.Contains(line, "Progress:") {
-				parts := strings.Split(line, ":")
-				if len(parts) > 1 {
-					pctStr := strings.TrimSpace(parts[1])
-					pctStr = strings.Replace(pctStr, "%", "", -1)
-					pct, err := strconv.ParseFloat(pctStr, 64)
-					if err == nil {
-						tea.Send(progressMsg{progress: pct / 100.0})
-					}
-				}
+		m.progressChan = make(chan tea.Msg)
+		go func() {
+			cmd := exec.Command(m.containerBin, "update")
+			var stdout io.ReadCloser
+			var err error
+			stdout, err = cmd.StdoutPipe()
+			if err != nil {
+				m.progressChan <- errorMsg{err: err.Error()}
+				close(m.progressChan)
+				return
 			}
-		}
-
-		if err := cmd.Wait(); err != nil {
-			return errorMsg{err: err.Error()}
-		}
-		return progressMsg{progress: 1.0}
+			if err := cmd.Start(); err != nil {
+				m.progressChan <- errorMsg{err: err.Error()}
+				close(m.progressChan)
+				return
+			}
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				m.progressChan <- lineMsg(scanner.Text())
+			}
+			if err := scanner.Err(); err != nil {
+				m.progressChan <- errorMsg{err: err.Error()}
+			} else {
+				m.progressChan <- doneMsg(nil)
+			}
+			if err := cmd.Wait(); err != nil {
+				m.progressChan <- errorMsg{err: err.Error()}
+			}
+			close(m.progressChan)
+		}()
+		return tickMsg{}
 	}
 }
 
