@@ -16,7 +16,7 @@
 > cd ..
 > cd container
 > cargo build --release
-sudo setcap cap_sys_admin,cap_sys_nice+ep container
+> sudo setcap cap_sys_admin,cap_sys_nice+ep container
 > cd ..
 > cd cli
 > crystal build main.cr --release
