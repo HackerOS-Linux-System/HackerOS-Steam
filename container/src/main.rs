@@ -11,10 +11,8 @@ use which::which;
 use podman_api::conn::TtyChunk;
 use std::env;
 use nix::unistd::{getuid, getgid};
-
 const CONTAINER_NAME: &str = "hackerosteam";
 const IMAGE_NAME: &str = "registry.fedoraproject.org/fedora:43";
-
 #[derive(thiserror::Error, Debug)]
 enum ContainerError {
     #[error("Brak sterowników GPU (brak /dev/dri)")]
@@ -24,14 +22,12 @@ enum ContainerError {
     #[error("NVIDIA wykryte, ale brak sterowników (nvidia-container-toolkit)")]
     NvidiaMissing,
 }
-
 #[derive(Parser)]
 #[command(name = "HackerOS-Steam", about = "Najlepszy kontener Steam dla Linuxa", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
-
 #[derive(Subcommand)]
 enum Commands {
     Create,
@@ -42,7 +38,6 @@ enum Commands {
     Remove,
     Status,
 }
-
 fn get_podman() -> anyhow::Result<Podman> {
     let user_socket = format!("/run/user/{}/podman/podman.sock", getuid().as_raw());
     if Path::new(&user_socket).exists() {
@@ -51,7 +46,6 @@ fn get_podman() -> anyhow::Result<Podman> {
         bail!("Nie znaleziono gniazda Podman użytkownika. Uruchom `systemctl --user start podman.socket`");
     }
 }
-
 fn get_data_dir() -> anyhow::Result<PathBuf> {
     let xdg = env::var("XDG_DATA_HOME").ok();
     let base = if let Some(x) = xdg {
@@ -59,10 +53,8 @@ fn get_data_dir() -> anyhow::Result<PathBuf> {
     } else {
         PathBuf::from(env::var("HOME")?).join(".local/share")
     }.join("hackerosteam");
-
     Ok(base)
 }
-
 fn get_host_data_dirs() -> anyhow::Result<(PathBuf, PathBuf, PathBuf, PathBuf)> {
     let base = get_data_dir()?;
     fs::create_dir_all(&base)?;
@@ -74,7 +66,6 @@ fn get_host_data_dirs() -> anyhow::Result<(PathBuf, PathBuf, PathBuf, PathBuf)> 
     fs::create_dir_all(&work)?;
     Ok((base, upper, work, empty))
 }
-
 fn detect_display_server() -> &'static str {
     if std::env::var("WAYLAND_DISPLAY").is_ok() {
         "wayland"
@@ -84,12 +75,10 @@ fn detect_display_server() -> &'static str {
         "none"
     }
 }
-
 fn check_gpu_drivers() -> anyhow::Result<bool> {
     if !Path::new("/dev/dri").exists() {
         bail!(ContainerError::NoGpu);
     }
-
     let is_nvidia = Path::new("/dev/nvidia0").exists();
     if is_nvidia {
         if which("nvidia-container-toolkit").is_err() {
@@ -99,10 +88,8 @@ fn check_gpu_drivers() -> anyhow::Result<bool> {
     } else {
         info!("GPU: Intel/AMD (Mesa) – pełna akceleracja");
     }
-
     Ok(is_nvidia)
 }
-
 async fn ensure_overlay() -> anyhow::Result<()> {
     let (_base, upper, work, _empty) = get_host_data_dirs()?;
     let mut is_empty = true;
@@ -112,7 +99,6 @@ async fn ensure_overlay() -> anyhow::Result<()> {
             is_empty = false;
         }
     }
-
     if !upper.exists() || is_empty {
         info!("Inicjalizacja overlayfs dla Steam...");
         tokio::fs::create_dir_all(&upper).await?;
@@ -120,27 +106,22 @@ async fn ensure_overlay() -> anyhow::Result<()> {
     }
     Ok(())
 }
-
 async fn create_container(podman: &Podman) -> anyhow::Result<()> {
     let is_nvidia = check_gpu_drivers()?;
     let display = detect_display_server();
     if display == "none" {
         bail!(ContainerError::NoDisplay);
     }
-
     let (_base, upper, work, empty) = get_host_data_dirs()?;
     ensure_overlay().await?;
-
     let uid = getuid().as_raw();
     let gid = getgid().as_raw();
     let run_user = format!("/run/user/{}", uid);
-
     let overlay_opts = vec![
         format!("upperdir={}", upper.display()),
-            format!("lowerdir={}", empty.display()),
-                format!("workdir={}", work.display()),
+        format!("lowerdir={}", empty.display()),
+        format!("workdir={}", work.display()),
     ];
-
     let mut mounts = vec![
         ContainerMount {
             _type: Some("bind".to_string()),
@@ -191,48 +172,42 @@ async fn create_container(podman: &Podman) -> anyhow::Result<()> {
             gid_mappings: None,
         },
     ];
-
     let mut device_cgroup_rules = vec![
         LinuxDeviceCgroup { type_: Some("c".to_string()), major: Some(226), minor: Some(-1), access: Some("rwm".to_string()), allow: Some(true) }, // drm
         LinuxDeviceCgroup { type_: Some("c".to_string()), major: Some(116), minor: Some(-1), access: Some("rwm".to_string()), allow: Some(true) }, // snd
-        LinuxDeviceCgroup { type_: Some("c".to_string()), major: Some(13),  minor: Some(-1), access: Some("rwm".to_string()), allow: Some(true) }, // input
+        LinuxDeviceCgroup { type_: Some("c".to_string()), major: Some(13), minor: Some(-1), access: Some("rwm".to_string()), allow: Some(true) }, // input
     ];
-
     let mut envs = vec![
         ("PULSE_SERVER".to_string(), format!("unix:{}/pulse/native", run_user)),
         ("STEAMOS".to_string(), "1".to_string()),
         ("STEAM_RUNTIME".to_string(), "0".to_string()),
         ("XDG_RUNTIME_DIR".to_string(), run_user.clone()),
+        ("IS_NVIDIA".to_string(), if is_nvidia { "true".to_string() } else { "false".to_string() }),
     ];
-
     if display == "x11" {
         envs.push(("DISPLAY".to_string(), env::var("DISPLAY").unwrap_or(":0".to_string())));
     }
     if display == "wayland" {
         envs.push(("WAYLAND_DISPLAY".to_string(), env::var("WAYLAND_DISPLAY").unwrap_or("wayland-0".to_string())));
     }
-
     if is_nvidia {
         envs.push(("NVIDIA_VISIBLE_DEVICES".to_string(), "all".to_string()));
         envs.push(("NVIDIA_DRIVER_CAPABILITIES".to_string(), "all".to_string()));
-
         for dev in &["/dev/nvidia0", "/dev/nvidiactl", "/dev/nvidia-modeset", "/dev/nvidia-uvm", "/dev/nvidia-uvm-tools"] {
             if Path::new(dev).exists() {
                 mounts.push(ContainerMount {
                     _type: Some("bind".to_string()),
-                            source: Some(dev.to_string()),
-                            destination: Some(dev.to_string()),
-                            options: Some(vec!["rbind".to_string(), "rprivate".to_string()]),
-                            uid_mappings: None,
-                            gid_mappings: None,
+                    source: Some(dev.to_string()),
+                    destination: Some(dev.to_string()),
+                    options: Some(vec!["rbind".to_string(), "rprivate".to_string()]),
+                    uid_mappings: None,
+                    gid_mappings: None,
                 });
             }
         }
-
         device_cgroup_rules.push(LinuxDeviceCgroup { type_: Some("c".to_string()), major: Some(195), minor: Some(-1), access: Some("rwm".to_string()), allow: Some(true) });
         device_cgroup_rules.push(LinuxDeviceCgroup { type_: Some("c".to_string()), major: Some(235), minor: Some(-1), access: Some("rwm".to_string()), allow: Some(true) });
     }
-
     let mut opts_builder = ContainerCreateOpts::builder()
     .image(IMAGE_NAME)
     .name(CONTAINER_NAME)
@@ -244,54 +219,64 @@ async fn create_container(podman: &Podman) -> anyhow::Result<()> {
     .net_namespace(Namespace { nsmode: Some("host".to_string()), value: None })
     .mounts(mounts)
     .add_capabilities(vec!["SYS_NICE".to_string(), "IPC_LOCK".to_string()])
-    .drop_capabilities(vec!["ALL".to_string()])
     .selinux_opts(vec!["disable".to_string()])
     .no_new_privilages(true)
     .privileged(false)
     .env(envs)
     .resource_limits(LinuxResources {
         cpu: Some(LinuxCpu { quota: Some(90000), period: None, realtime_period: None, realtime_runtime: None, shares: None, cpus: None, mems: None }),
-                     memory: Some(LinuxMemory { limit: Some(17_179_869_184), reservation: None, swap: None, kernel: None, kernel_tcp: None, swappiness: None, disable_oom_killer: None, use_hierarchy: None }),
-                     pids: Some(LinuxPids { limit: Some(4096) }),
-                     block_io: Some(LinuxBlockIo { weight: Some(1000), leaf_weight: None, weight_device: None, throttle_read_bps_device: None, throttle_read_iops_device: None, throttle_write_bps_device: None, throttle_write_iops_device: None }),
-                     devices: Some(device_cgroup_rules),
-                     hugepage_limits: None,
-                     network: None,
-                     rdma: None,
-                     unified: None,
+        memory: Some(LinuxMemory { limit: Some(17_179_869_184), reservation: None, swap: None, kernel: None, kernel_tcp: None, swappiness: None, disable_oom_killer: None, use_hierarchy: None }),
+        pids: Some(LinuxPids { limit: Some(4096) }),
+        block_io: Some(LinuxBlockIo { weight: Some(1000), leaf_weight: None, weight_device: None, throttle_read_bps_device: None, throttle_read_iops_device: None, throttle_write_bps_device: None, throttle_write_iops_device: None }),
+        devices: Some(device_cgroup_rules),
+        hugepage_limits: None,
+        network: None,
+        rdma: None,
+        unified: None,
     });
-
     if is_nvidia {
         opts_builder = opts_builder.oci_runtime(Some("nvidia".to_string()));
     }
-
     let opts = opts_builder.build();
-
     let container = podman.containers().get(CONTAINER_NAME);
     if container.inspect().await.is_ok() {
         info!("Kontener już istnieje – pomijamy tworzenie.");
         return Ok(());
     }
-
     info!("Tworzenie bezpiecznego kontenera Steam...");
     podman.containers().create(&opts).await?;
     info!("Kontener {} utworzony!", CONTAINER_NAME);
-
     // Pierwsze uruchomienie – instalacja
     let containers_api = podman.containers();
     let container = containers_api.get(CONTAINER_NAME);
     container.start(None).await?;
-
     let install_cmd = format!(
-        r#"dnf install -y steam gamescope vulkan-tools mesa-vulkan-drivers libva-vdpau-driver pipewire-pulseaudio gamemode &&
-        groupadd -g {} steamgroup || true &&
-        useradd -m -u {} -g {} steam || true &&
-        mkdir -p /home/steam/.steam &&
-        chown -R steam:steamgroup /home/steam &&
+        r#"dnf install -y https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm &&
+        dnf update -y &&
+        packages="steam gamescope vulkan-tools mesa-vulkan-drivers pipewire-pulseaudio gamemode" &&
+        if [ "${{IS_NVIDIA:-false}}" = "true" ]; then packages+=" libva-nvidia-driver"; else packages+=" mesa-va-drivers-freeworld"; fi &&
+        dnf install -y $packages &&
+        [ -f /etc/gshadow ] || touch /etc/gshadow &&
+        chmod 600 /etc/gshadow || true &&
+        gid={} &&
+        uid={} &&
+        group_name="steamgroup" &&
+        user_name="steam" &&
+        if getent passwd $uid >/dev/null; then
+          existing_user=$(getent passwd $uid | cut -d: -f1)
+          userdel -r $existing_user || true
+        fi &&
+        if getent group $gid >/dev/null; then
+          existing_group=$(getent group $gid | cut -d: -f1)
+          groupdel $existing_group || true
+        fi &&
+        groupadd -g $gid $group_name || true &&
+        useradd -m -u $uid -g $gid $user_name || true &&
+        mkdir -p /home/steam/.steam || true &&
+        chown -R $uid:$gid /home/steam || true &&
         echo "Kontener Steam gotowy!""#,
-        gid, uid, gid
+        gid, uid
     );
-
     let exec_opts = ExecCreateOpts::builder()
     .command(vec!["/bin/bash".to_string(), "-c".to_string(), install_cmd])
     .attach_stdout(true)
@@ -299,12 +284,9 @@ async fn create_container(podman: &Podman) -> anyhow::Result<()> {
     .tty(false)
     .user(UserOpt::User("root".to_string()))
     .build();
-
     let exec = container.create_exec(&exec_opts).await?;
-
     let start_opts = ExecStartOpts::builder().tty(false).build();
     let output = exec.start(&start_opts).await?;
-
     if let Some(mut stream) = output {
         while let Some(result) = stream.next().await {
             let chunk = result?;
@@ -313,41 +295,33 @@ async fn create_container(podman: &Podman) -> anyhow::Result<()> {
             }
         }
     }
-
     container.stop(&ContainerStopOpts::builder().build()).await?;
     Ok(())
 }
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::Builder::new()
     .filter(None, LevelFilter::Info)
     .init();
-
     if getuid().is_root() {
         bail!("NIE uruchamiaj z sudo! Ten skrypt działa TYLKO w trybie rootless Podman.");
     }
-
     let cli = Cli::parse();
     let podman = get_podman()?;
-
     match cli.command {
         Commands::Create => create_container(&podman).await?,
         Commands::Run { session } => {
             create_container(&podman).await?;
             let containers_api = podman.containers();
             let container = containers_api.get(CONTAINER_NAME);
-
             let session_cmd = match session.as_deref() {
                 Some("gamescope-session-steam") | Some("deck") => {
-                    "su - steam -c 'gamescope -e -- steam -gamepadui'".to_string()
+                    "gamescope -e -- steam -gamepadui".to_string()
                 }
-                _ => "su - steam -c 'steam -silent || steam'".to_string(),
+                _ => "steam -silent || steam".to_string(),
             };
-
             info!("Uruchamianie: {}", session_cmd);
             container.start(None).await?;
-
             let exec_opts = ExecCreateOpts::builder()
             .command(vec!["/bin/bash".to_string(), "-c".to_string(), session_cmd])
             .attach_stdout(true)
@@ -356,12 +330,9 @@ async fn main() -> anyhow::Result<()> {
             .tty(true)
             .user(UserOpt::User("steam".to_string()))
             .build();
-
             let exec = container.create_exec(&exec_opts).await?;
-
             let start_opts = ExecStartOpts::builder().tty(true).build();
             let output = exec.start(&start_opts).await?;
-
             if let Some(mut stream) = output {
                 while let Some(result) = stream.next().await {
                     let chunk = result?;
