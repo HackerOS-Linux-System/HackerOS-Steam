@@ -1,0 +1,30 @@
+FROM registry.fedoraproject.org/fedora:42
+
+ENV LANG=en_US.UTF-8 \
+    STEAMOS=1 \
+    STEAM_RUNTIME=1
+
+# RPM Fusion + Steam + gry
+RUN dnf install -y \
+        https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
+        https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm \
+    && dnf update -y \
+    && dnf install -y \
+        steam \
+        gamescope \
+        vulkan-tools \
+        pipewire-pulseaudio \
+        gamemode \
+        glibc-langpack-en \
+        util-linux \
+        bzip2-libs \
+        bzip2-libs.i686 \
+    && dnf clean all
+
+# User "steam" – UID/GID nadpiszesz keep-id
+RUN useradd -m steam
+
+WORKDIR /home/steam
+USER steam
+
+CMD ["steam"]
