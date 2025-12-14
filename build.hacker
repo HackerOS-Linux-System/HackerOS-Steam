@@ -1,6 +1,5 @@
 // crystal
 // golang
-// cargo
 // valac
 // meson
 // cmake
@@ -15,8 +14,8 @@
 > meson compile -C build
 > cd ..
 > cd container
-> cargo build --release
-> sudo setcap cap_sys_admin,cap_sys_nice+ep container
+> crystal build src/main.cr --release
+> sudo mv main container
 > cd ..
 > cd cli
 > crystal build main.cr --release
