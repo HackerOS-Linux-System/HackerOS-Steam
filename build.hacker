@@ -5,17 +5,7 @@
 // cmake
 // libgtk-4-dev
 
-> cd tui
-> go get hackeros-steam-tui
-> go build
-> cd ..
-> cd gui
-> meson setup build
-> meson compile -C build
-> cd ..
-> cd container
-> crystal build src/main.cr --release
-> sudo mv main container
-> cd ..
-> cd cli
-> crystal build main.cr --release
+> cd source-code
+>>> cd cli && crystal build src/main.cr --release && sudo mv main HackerOS-Steam
+>>> cd gui && meson setup build && meson compile -C build
+>>> cd tui && go get tui && go build
