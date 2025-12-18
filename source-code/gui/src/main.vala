@@ -46,7 +46,7 @@ namespace HackerOSSteam {
         private void on_launch_clicked() {
             status_label.set_text("Status: Uruchamianie Steam...");
             try {
-                var cmd = Path.build_filename(Environment.get_home_dir(), ".hackeros", "HackerOS-Steam", "container", "hackerosteam-container");
+                var cmd = Path.build_filename(Environment.get_home_dir(), "HackerOS-Steam run");
                 const string[] argv = {cmd, "run"};
                 Process.spawn_async(Environment.get_home_dir(), argv, null, SpawnFlags.SEARCH_PATH, null, null);
                 status_label.set_text("Status: Steam uruchomiony!");
@@ -61,7 +61,7 @@ namespace HackerOSSteam {
             progress_bar.set_fraction(0.0);
             status_label.set_text("Status: Aktualizacja w toku...");
             try {
-                var cmd = Path.build_filename(Environment.get_home_dir(), ".hackeros", "HackerOS-Steam", "container", "hackerosteam-container");
+                var cmd = Path.build_filename(Environment.get_home_dir(), "HackerOS-Steam update");
                 const string[] argv = {cmd, "update"};
                 int stdout_fd, stderr_fd;
                 Process.spawn_async_with_pipes(
