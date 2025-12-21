@@ -1,11 +1,8 @@
 // crystal
 // golang
-// valac
-// meson
-// cmake
-// libgtk-4-dev
+// git
 
 > cd source-code
 >>> cd cli && crystal build src/main.cr --release && sudo mv main HackerOS-Steam
->>> cd gui && meson setup build && meson compile -C build
+>>> cd gui && git clone https://github.com/libui-ng/libui-ng.git && cd libui-ng && meson setup build && ninja -C build && sudo ninja -C build install && shards build
 >>> cd tui && go get tui && go build
