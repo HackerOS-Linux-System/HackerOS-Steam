@@ -1,12 +1,11 @@
-name: container
-version: 0.2
+name: HackerOS-Steam
+version: 0.3
 
 authors:
   - HackerOS Team <hackeros068@gmail.com>
 
-description: |
-  Najlepszy kontener Steam dla Linuxa
+description: CLI binary for HackerOS-Steam
 
 crystal: ">= 1.0.0"
 
-license: GPL-3.0
+license: MIT
