@@ -1,7 +1,7 @@
 require "option_parser"
 
 CONTAINER_NAME = "HackerOS-Steam"
-DISTRO_IMAGE = "archlinux:latest"
+DISTRO_IMAGE = "docker.io/archlinux:latest"
 
 # ANSI color codes
 RESET = "\e[0m"
@@ -21,7 +21,7 @@ BG_BLUE = "\e[44m"
 
 def print_banner
   puts "#{BOLD}#{GREEN}=============================================#{RESET}"
-  puts "#{BOLD}#{CYAN}  HackerOS-Steam: Steam Container Manager  #{RESET}"
+  puts "#{BOLD}#{CYAN} HackerOS-Steam: Steam Container Manager #{RESET}"
   puts "#{BOLD}#{GREEN}=============================================#{RESET}"
   puts ""
 end
@@ -87,17 +87,13 @@ def create_container(force : Bool = false)
     print_warning("Container #{CONTAINER_NAME} already exists. Use --force to recreate.")
     return
   end
-
   print_header("Creating Container")
   print_info("Creating container #{CONTAINER_NAME} with image #{DISTRO_IMAGE}...")
   run_command(["distrobox", "create", "--name", CONTAINER_NAME, "--image", DISTRO_IMAGE, "--yes"])
-
   print_info("Enabling multilib in the container...")
   run_command(["distrobox", "enter", CONTAINER_NAME, "--", "sudo", "sed", "-i", "/\\[multilib\\]/,/Include/s/^#//", "/etc/pacman.conf"])
-
   print_info("Updating packages in the container...")
-  run_command(["distrobox", "enter", CONTAINER_NAME, "--", "sudo", "pacman", "-Syu", "--noconfirm"])
-
+  run_command(["distrobox", "enter", CONTAINER_NAME, "--", "sudo", "pacman", "-Syyu", "--noconfirm"])
   print_info("Installing Steam, 32-bit libraries, fonts, and additional Vulkan drivers in the container...")
   packages = [
     "steam",
@@ -127,21 +123,15 @@ def create_container(force : Bool = false)
     "ttf-dejavu",
     "ttf-droid",
     "ttf-ibm-plex",
-    "ttf-input",
-    "ttf-input-nerd",
     "ttf-liberation",
     "ttf-roboto",
     # Additional lib32 Vulkan packages
-    "lib32-vulkan-asahi",
-    "lib32-vulkan-dzn",
     "lib32-vulkan-freedreno",
-    "lib32-vulkan-gfxstream",
     "lib32-vulkan-nouveau",
     "lib32-vulkan-swrast",
     "lib32-vulkan-virtio",
   ]
   run_command(["distrobox", "enter", CONTAINER_NAME, "--", "sudo", "pacman", "-S", "--noconfirm"] + packages)
-
   print_success("Container created, multilib enabled, Steam with extended 32-bit libraries, fonts, and additional Vulkan drivers installed.")
 end
 
@@ -150,7 +140,6 @@ def kill_container
     print_warning("Container #{CONTAINER_NAME} does not exist.")
     return
   end
-
   print_header("Killing Container")
   print_info("Stopping container #{CONTAINER_NAME}...")
   run_command(["distrobox", "stop", "--name", CONTAINER_NAME, "--yes"])
@@ -162,7 +151,6 @@ def remove_container
     print_warning("Container #{CONTAINER_NAME} does not exist.")
     return
   end
-
   print_header("Removing Container")
   print_info("Removing container #{CONTAINER_NAME}...")
   run_command(["distrobox", "rm", "--name", CONTAINER_NAME, "--force", "--yes"])
@@ -174,11 +162,9 @@ def update_container
     print_error("Container #{CONTAINER_NAME} does not exist. Create it first.")
     exit(1)
   end
-
   print_header("Updating Container")
   print_info("Upgrading distrobox container #{CONTAINER_NAME}...")
   run_command(["distrobox-upgrade", CONTAINER_NAME])
-
   print_info("Updating packages and Steam inside the container...")
   run_command(["distrobox", "enter", CONTAINER_NAME, "--", "sudo", "pacman", "-Syu", "--noconfirm"])
   print_success("Container and packages updated. Steam will update on launch.")
@@ -196,7 +182,6 @@ def run_steam(flags : Array(String))
     print_error("Container #{CONTAINER_NAME} does not exist. Create it first.")
     exit(1)
   end
-
   print_header("Running Steam")
   print_info("Launching Steam in container #{CONTAINER_NAME} with flags: #{flags.join(" ")}")
   steam_args = flags.empty? ? [] of String : flags
@@ -209,13 +194,11 @@ def status_container
     print_warning("Container #{CONTAINER_NAME} does not exist.")
     return
   end
-
   running = container_running?
   status_str = running ? "#{GREEN}Running#{RESET}" : "#{YELLOW}Stopped#{RESET}"
   print_info("Container: #{CONTAINER_NAME}")
   print_info("Image: #{DISTRO_IMAGE}")
   print_info("Status: #{status_str}")
-
   # Get more details
   output_io = IO::Memory.new
   status = Process.run("distrobox", ["list", "--no-color"], output: output_io, error: Process::Redirect::Inherit)
@@ -241,7 +224,6 @@ def install_additional_packages(packages : Array(String))
     print_error("Container #{CONTAINER_NAME} does not exist. Create it first.")
     exit(1)
   end
-
   print_header("Installing Additional Packages")
   print_info("Installing packages: #{packages.join(" ")}")
   run_command(["distrobox", "enter", CONTAINER_NAME, "--", "sudo", "pacman", "-S", "--noconfirm"] + packages)
@@ -251,28 +233,25 @@ end
 def print_help(parser : OptionParser)
   puts parser
   puts "Commands:"
-  puts "  run [flags]   Run Steam (supports -gamepadui, -steamos3, -steampal, -steamdeck, etc.)"
-  puts "  create        Create the container"
-  puts "  kill          Kill the container"
-  puts "  remove        Remove the container"
-  puts "  update        Update the container and Steam"
-  puts "  restart       Restart the container and Steam"
-  puts "  status        Check container status"
-  puts "  list          List all containers"
-  puts "  install PKGS  Install additional packages (e.g., install package1 package2)"
-  puts "  gui           Open GUI menu"
+  puts " run [flags] Run Steam (supports -gamepadui, -steamos3, -steampal, -steamdeck, etc.)"
+  puts " create Create the container"
+  puts " kill Kill the container"
+  puts " remove Remove the container"
+  puts " update Update the container and Steam"
+  puts " restart Restart the container and Steam"
+  puts " status Check container status"
+  puts " list List all containers"
+  puts " install PKGS Install additional packages (e.g., install package1 package2)"
+  puts " gui Open GUI menu"
 end
 
 def main
   print_banner
-
   command = ""
   flags = [] of String
   force = false
-
   parser = OptionParser.new do |parser|
     parser.banner = "Usage: HackerOS-Steam [command] [options] [flags]"
-
     parser.on("--force", "Force operation (e.g., for create)") { force = true }
     parser.on("-h", "--help", "Show this help") do
       print_help(parser)
@@ -285,14 +264,11 @@ def main
       end
     end
   end
-
   parser.parse
-
   if command.empty?
     print_help(parser)
     exit(1)
   end
-
   case command
   when "run"
     run_steam(flags)
