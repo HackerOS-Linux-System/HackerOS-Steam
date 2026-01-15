@@ -91,9 +91,11 @@ def create_container(force : Bool = false)
   print_info("Creating container #{CONTAINER_NAME} with image #{DISTRO_IMAGE}...")
   run_command(["distrobox", "create", "--name", CONTAINER_NAME, "--image", DISTRO_IMAGE, "--yes"])
   print_info("Enabling multilib in the container...")
-  run_command(["distrobox", "enter", CONTAINER_NAME, "--", "sudo", "sed", "-i", "/\\[multilib\\]/,/Include/s/^#//", "/etc/pacman.conf"])
+  run_command(["distrobox", "enter", CONTAINER_NAME, "--", "sudo", "sed", "-i", "/#\\[multilib\\]/,/#Include/s/^#//", "/etc/pacman.conf"])
+  print_info("Refreshing package databases in the container...")
+  run_command(["distrobox", "enter", CONTAINER_NAME, "--", "sudo", "pacman", "-Syy", "--noconfirm"])
   print_info("Updating packages in the container...")
-  run_command(["distrobox", "enter", CONTAINER_NAME, "--", "sudo", "pacman", "-Syyu", "--noconfirm"])
+  run_command(["distrobox", "enter", CONTAINER_NAME, "--", "sudo", "pacman", "-Syu", "--noconfirm"])
   print_info("Installing Steam, 32-bit libraries, fonts, and additional Vulkan drivers in the container...")
   packages = [
     "steam",
@@ -116,7 +118,6 @@ def create_container(force : Bool = false)
     "lib32-libgpg-error", # Additional
     "lib32-dbus", # Additional
     # Additional fonts
-    "gnu-free-fonts",
     "noto-fonts",
     "ttf-bitstream-vera",
     "ttf-croscore",
