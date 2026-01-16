@@ -89,9 +89,12 @@ def create_container(force : Bool = false)
   end
   print_header("Creating Container")
   print_info("Creating container #{CONTAINER_NAME} with image #{DISTRO_IMAGE}...")
-  run_command(["distrobox", "create", "--name", CONTAINER_NAME, "--image", DISTRO_IMAGE, "--yes"])
-  print_info("Enabling multilib in the container...")
-  run_command(["distrobox", "enter", CONTAINER_NAME, "--", "grep -q '^\\[multilib\\]' /etc/pacman.conf || echo -e '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist' | sudo tee -a /etc/pacman.conf"])
+  run_command([
+  "distrobox", "enter", CONTAINER_NAME, "--",
+  "bash", "-lc",
+  "grep -q '^\\[multilib\\]' /etc/pacman.conf || \
+   echo -e '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist' | sudo tee -a /etc/pacman.conf"
+])
   print_info("Refreshing package databases in the container...")
   run_command(["distrobox", "enter", CONTAINER_NAME, "--", "sudo", "pacman", "-Syy", "--noconfirm"])
   print_info("Updating packages in the container...")
