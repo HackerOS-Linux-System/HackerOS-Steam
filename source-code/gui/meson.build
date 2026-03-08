@@ -4,7 +4,7 @@ project('hackeros-steam-gui', 'vala', 'c',
 
 gtk4_dep = dependency('gtk4')
 
-executable('hackeros-steam-gui',
+executable('gui',
   'main.vala',
   dependencies: [gtk4_dep],
   install: true
