@@ -7,11 +7,12 @@ include Colors
 def print_help
   UI.print_banner
   puts "  #{BOLD}#{WHITE}USAGE#{RESET}"
-  puts "  #{BRIGHT_BLACK}hackeros-steam #{CYAN}<command> #{BRIGHT_BLACK}[options] [flags]#{RESET}"
+  puts "  #{BRIGHT_BLACK}HackerOS-Steam #{CYAN}<command> #{BRIGHT_BLACK}[options] [flags]#{RESET}"
   puts ""
   puts "  #{BOLD}#{WHITE}COMMANDS#{RESET}"
   UI.print_divider
   UI.print_help_row("create [--force]",    "Create the Steam container (Arch + multilib + Steam)")
+  UI.print_help_row("setup",              "Install Steam into an existing container (repair)")
   UI.print_help_row("run [flags...]",      "Launch Steam (e.g. -gamepadui -steamos3 -steamdeck)")
   UI.print_help_row("kill",               "Stop the running container")
   UI.print_help_row("remove",             "Remove the container (asks for confirmation)")
@@ -20,7 +21,8 @@ def print_help
   UI.print_help_row("status",             "Show container state and details")
   UI.print_help_row("list",               "List all distrobox containers")
   UI.print_help_row("install PKG...",     "Install additional Arch packages inside container")
-  UI.print_help_row("gui",               "Open the HackerOS-Steam GUI")
+  UI.print_help_row("gui",               "Launch GTK4 GUI  (/usr/share/HackerOS/Scripts/Steam/bin/gui)")
+  UI.print_help_row("tui",               "Launch terminal TUI  (/usr/share/HackerOS/Scripts/Steam/bin/tui)")
   UI.print_divider
   puts ""
   puts "  #{BOLD}#{WHITE}EXAMPLES#{RESET}"
@@ -55,11 +57,14 @@ def main
   when "run"
     Container.run_steam(rest)
 
+  when "setup"
+    Container.setup
+
   when "kill", "stop"
     Container.kill
 
   when "remove", "rm", "delete"
-    Container.remove
+    Container.remove(ask: !force)
 
   when "update", "upgrade"
     Container.update
@@ -81,11 +86,28 @@ def main
     Container.install_packages(rest)
 
   when "gui"
-    gui_path = "#{ENV["HOME"]? || "~"}/.hackeros/HackerOS-Steam/gui"
+    gui_path = "/usr/share/HackerOS/Scripts/Steam/bin/gui"
     UI.print_info("Launching GUI: #{gui_path}")
+    unless File.executable?(gui_path)
+      UI.print_error("GUI binary not found or not executable: #{gui_path}")
+      exit(1)
+    end
     status = Process.run(gui_path, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
     unless status.success?
-      UI.print_error("Failed to launch GUI. Is it installed?")
+      UI.print_error("GUI exited with error.")
+      exit(1)
+    end
+
+  when "tui"
+    tui_path = "/usr/share/HackerOS/Scripts/Steam/bin/tui"
+    UI.print_info("Launching TUI: #{tui_path}")
+    unless File.executable?(tui_path)
+      UI.print_error("TUI binary not found or not executable: #{tui_path}")
+      exit(1)
+    end
+    status = Process.run(tui_path, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+    unless status.success?
+      UI.print_error("TUI exited with error.")
       exit(1)
     end
 
