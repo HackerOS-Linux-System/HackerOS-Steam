@@ -1,4 +1,4 @@
-name: HackerOS-Steam
+name: hackeros-steam
 version: 0.3
 
 authors:
@@ -8,4 +8,4 @@ description: CLI binary for HackerOS-Steam
 
 crystal: ">= 1.0.0"
 
-license: MIT
+license: GPL-3.0
