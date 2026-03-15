@@ -7,7 +7,7 @@ include Colors
 def print_help
   UI.print_banner
   puts "  #{BOLD}#{WHITE}USAGE#{RESET}"
-  puts "  #{BRIGHT_BLACK}HackerOS-Steam #{CYAN}<command> #{BRIGHT_BLACK}[options] [flags]#{RESET}"
+  puts "  #{BRIGHT_BLACK}hackeros-steam #{CYAN}<command> #{BRIGHT_BLACK}[options] [flags]#{RESET}"
   puts ""
   puts "  #{BOLD}#{WHITE}COMMANDS#{RESET}"
   UI.print_divider
