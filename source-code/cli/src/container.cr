@@ -40,8 +40,11 @@ module Container
     "ttf-roboto",
   ]
 
-  # NVIDIA utils are optional — skip if unavailable
   NVIDIA_PACKAGES = ["lib32-nvidia-utils"]
+
+  # ──────────────────────────────────────────────
+  #  HELPERS
+  # ──────────────────────────────────────────────
 
   def self.run_cmd(args : Array(String), silent : Bool = false) : Bool
     unless silent
@@ -63,12 +66,13 @@ module Container
     end
   end
 
+  # Use plain `bash -c` (NOT -lc) — login shell in distrobox causes PATH issues
   def self.run_in_container(bash_cmd : String, silent : Bool = false)
-    run_cmd!(["distrobox", "enter", CONTAINER_NAME, "--", "bash", "-lc", bash_cmd], silent)
+    run_cmd!(["distrobox", "enter", CONTAINER_NAME, "--", "bash", "-c", bash_cmd], silent)
   end
 
   def self.run_in_container_ok?(bash_cmd : String) : Bool
-    run_cmd(["distrobox", "enter", CONTAINER_NAME, "--", "bash", "-lc", bash_cmd], silent: true)
+    run_cmd(["distrobox", "enter", CONTAINER_NAME, "--", "bash", "-c", bash_cmd], silent: true)
   end
 
   def self.exists? : Bool
@@ -93,6 +97,59 @@ module Container
   end
 
   # ──────────────────────────────────────────────
+  #  ENABLE MULTILIB
+  #  Uses sed to uncomment the [multilib] section.
+  #  Falls back to appending a fresh block if the
+  #  section doesn't exist at all.
+  # ──────────────────────────────────────────────
+  def self.enable_multilib
+    UI.print_info("Enabling [multilib] in /etc/pacman.conf...")
+
+    # sed: uncomment #[multilib] and the #Include line immediately after it
+    run_in_container(
+      "sudo sed -i '/^#\\[multilib\\]/{s/^#//;n;s/^#//}' /etc/pacman.conf"
+    )
+
+    # Verify multilib is now active
+    unless run_in_container_ok?("grep -q '^\\[multilib\\]' /etc/pacman.conf")
+      UI.print_warning("[multilib] section not found after sed — appending it...")
+      run_in_container(
+        "printf '\\n[multilib]\\nInclude = /etc/pacman.d/mirrorlist\\n' | sudo tee -a /etc/pacman.conf > /dev/null"
+      )
+    end
+
+    UI.print_success("[multilib] enabled.")
+  end
+
+  # ──────────────────────────────────────────────
+  #  INSTALL STEAM  (shared by create & setup)
+  # ──────────────────────────────────────────────
+  def self.install_steam(step_start : Int32, total : Int32)
+    s = step_start
+
+    UI.print_step(s, total, "Enabling [multilib] repository...")
+    enable_multilib
+    s += 1
+
+    UI.print_step(s, total, "Refreshing package databases (pacman -Syy)...")
+    run_in_container("sudo pacman -Syy --noconfirm")
+    s += 1
+
+    UI.print_step(s, total, "Upgrading base system (pacman -Syu)...")
+    run_in_container("sudo pacman -Syu --noconfirm")
+    s += 1
+
+    UI.print_step(s, total, "Installing Steam + 32-bit libs (#{STEAM_PACKAGES.size} packages)...")
+    run_in_container("sudo pacman -S --noconfirm --needed #{STEAM_PACKAGES.join(" ")}")
+    s += 1
+
+    UI.print_step(s, total, "Optional: NVIDIA lib32 utils...")
+    unless run_in_container_ok?("sudo pacman -S --noconfirm --needed #{NVIDIA_PACKAGES.join(" ")}")
+      UI.print_warning("NVIDIA lib32 skipped (no NVIDIA driver — that's fine).")
+    end
+  end
+
+  # ──────────────────────────────────────────────
   #  CREATE
   # ──────────────────────────────────────────────
   def self.create(force : Bool = false)
@@ -100,17 +157,17 @@ module Container
 
     if exists?
       if force
-        UI.print_warning("Force flag set — removing existing container first...")
+        UI.print_warning("--force: removing existing container first...")
         remove(ask: false)
       else
         UI.print_warning("Container #{CONTAINER_NAME} already exists.")
-        UI.print_info("Use --force to recreate it from scratch.")
+        UI.print_info("Use --force to recreate, or 'setup' to install Steam into existing container.")
         return
       end
     end
 
-    steps = 6
-    UI.print_step(1, steps, "Creating distrobox container (#{DISTRO_IMAGE})...")
+    total = 6
+    UI.print_step(1, total, "Creating distrobox container (#{DISTRO_IMAGE})...")
     run_cmd!([
       "distrobox", "create",
       "--name", CONTAINER_NAME,
@@ -118,31 +175,34 @@ module Container
       "--yes",
     ])
 
-    UI.print_step(2, steps, "Enabling multilib repository...")
-    run_in_container(
-      "grep -q '^\\[multilib\\]' /etc/pacman.conf || " \
-      "echo -e '\\n[multilib]\\nInclude = /etc/pacman.d/mirrorlist' | sudo tee -a /etc/pacman.conf > /dev/null"
-    )
-
-    UI.print_step(3, steps, "Refreshing package databases...")
-    run_in_container("sudo pacman -Syy --noconfirm")
-
-    UI.print_step(4, steps, "Upgrading base system...")
-    run_in_container("sudo pacman -Syu --noconfirm")
-
-    UI.print_step(5, steps, "Installing Steam and 32-bit libraries (#{STEAM_PACKAGES.size} packages)...")
-    pkg_list = STEAM_PACKAGES.join(" ")
-    run_in_container("sudo pacman -S --noconfirm --needed #{pkg_list}")
-
-    UI.print_step(6, steps, "Attempting optional NVIDIA lib32 utilities...")
-    nvidia_ok = run_in_container_ok?("sudo pacman -S --noconfirm --needed #{NVIDIA_PACKAGES.join(" ")}")
-    unless nvidia_ok
-      UI.print_warning("NVIDIA lib32 utils skipped (no NVIDIA driver detected — that's OK).")
-    end
+    install_steam(step_start: 2, total: total)
 
     puts ""
     UI.print_divider
-    UI.print_success("Container ready! Run:  #{BOLD}HackerOS-Steam run#{RESET}")
+    UI.print_success("Container ready!  →  HackerOS-Steam run")
+    UI.print_divider
+    puts ""
+  end
+
+  # ──────────────────────────────────────────────
+  #  SETUP
+  #  Install/repair Steam in an existing container.
+  #  Useful when container was created manually or
+  #  Steam is missing for any reason.
+  # ──────────────────────────────────────────────
+  def self.setup
+    UI.print_header("Setting Up Steam in Container")
+    unless exists?
+      UI.print_error("Container does not exist. Run:  HackerOS-Steam create")
+      exit(1)
+    end
+
+    total = 5
+    install_steam(step_start: 1, total: total)
+
+    puts ""
+    UI.print_divider
+    UI.print_success("Setup complete!  →  HackerOS-Steam run")
     UI.print_divider
     puts ""
   end
@@ -160,8 +220,8 @@ module Container
       UI.print_info("Container is already stopped.")
       return
     end
-    UI.print_info("Sending stop signal to #{CONTAINER_NAME}...")
-    run_cmd!(["distrobox", "stop", "--name", CONTAINER_NAME, "--yes"])
+    UI.print_info("Stopping #{CONTAINER_NAME}...")
+    run_cmd!(["distrobox", "stop", "--yes", CONTAINER_NAME])
     UI.print_success("Container stopped.")
   end
 
@@ -174,12 +234,12 @@ module Container
       UI.print_warning("Container #{CONTAINER_NAME} does not exist.")
       return
     end
-    if ask && !UI.confirm?("This will permanently remove #{CONTAINER_NAME}. Continue?")
+    if ask && !UI.confirm?("Permanently remove #{CONTAINER_NAME}?")
       UI.print_info("Aborted.")
       return
     end
-    UI.print_info("Removing container #{CONTAINER_NAME}...")
-    run_cmd!(["distrobox", "rm", "--name", CONTAINER_NAME, "--force", "--yes"])
+    UI.print_info("Removing #{CONTAINER_NAME}...")
+    run_cmd!(["distrobox", "rm", "--yes", CONTAINER_NAME])
     UI.print_success("Container removed.")
   end
 
@@ -196,7 +256,7 @@ module Container
     run_cmd!(["distrobox-upgrade", CONTAINER_NAME])
     UI.print_info("Upgrading packages inside container...")
     run_in_container("sudo pacman -Syu --noconfirm")
-    UI.print_success("All packages updated. Steam will self-update on next launch.")
+    UI.print_success("All packages updated.")
   end
 
   # ──────────────────────────────────────────────
@@ -217,10 +277,20 @@ module Container
       UI.print_error("Container does not exist — run:  HackerOS-Steam create")
       exit(1)
     end
+
+    # Check Steam is actually installed before trying to run it
+    unless run_in_container_ok?("test -x /usr/bin/steam")
+      UI.print_error("Steam is not installed in the container!")
+      UI.print_info("Fix it with:  HackerOS-Steam setup")
+      exit(1)
+    end
+
     flag_str = flags.empty? ? "(none)" : flags.join(" ")
     UI.print_info("Container : #{CONTAINER_NAME}")
     UI.print_info("Flags     : #{flag_str}")
     puts ""
+
+    # Call /usr/bin/steam directly — no bash wrapper (avoids PATH issues)
     run_cmd!(["distrobox", "enter", CONTAINER_NAME, "--", "/usr/bin/steam"] + flags)
   end
 
@@ -233,9 +303,20 @@ module Container
       is_running = running?
       state_color = is_running ? BRIGHT_GREEN : BRIGHT_YELLOW
       state_label = is_running ? "● Running" : "○ Stopped"
+
+      steam_ok    = run_in_container_ok?("test -x /usr/bin/steam")
+      steam_label = steam_ok ? "✔ Installed" : "✖ Not installed (run: setup)"
+      steam_color = steam_ok ? BRIGHT_GREEN : RED
+
+      multilib_ok    = run_in_container_ok?("grep -q '^\\[multilib\\]' /etc/pacman.conf")
+      multilib_label = multilib_ok ? "✔ Enabled" : "✖ Disabled"
+      multilib_color = multilib_ok ? BRIGHT_GREEN : YELLOW
+
       UI.print_status_row("Container:", CONTAINER_NAME, BRIGHT_WHITE)
       UI.print_status_row("Image:", DISTRO_IMAGE, BRIGHT_BLACK)
       UI.print_status_row("Status:", state_label, state_color)
+      UI.print_status_row("Steam:", steam_label, steam_color)
+      UI.print_status_row("multilib:", multilib_label, multilib_color)
       if (dl = detail_line)
         UI.print_divider
         UI.print_info(dl.strip)
