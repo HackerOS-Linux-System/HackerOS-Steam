@@ -588,7 +588,7 @@ namespace HackerOSSteam {
                 try {
                     int choice = dialog.choose.end (res);
                     if (choice == 1)
-                        run_command ({"remove"});
+                        run_command ({"--force", "remove"});
                 } catch {}
             });
         }
