@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=HackerOS Steam
+Comment=Steam Container Manager — Distrobox + Arch Linux
+Exec=hackeros-steam gui
+Icon=/usr/share/HackerOS/ICONS/HackerOS-Steam.png
+Terminal=false
+Type=Application
+Categories=Game;Utility;
+Keywords=steam;gaming;container;distrobox;arch;
+StartupWMClass=hackeros-steam-gui
