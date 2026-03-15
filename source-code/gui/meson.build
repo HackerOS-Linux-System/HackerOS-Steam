@@ -1,5 +1,5 @@
 project(
-  'hackeros-steam-gui',
+  'gui',
   'vala', 'c',
   version: '2.0.0',
   meson_version: '>= 0.62.0',
@@ -20,7 +20,7 @@ sources = files('src/main.vala')
 
 # ── Executable ────────────────────────────────────────────────────────────────
 executable(
-  'hackeros-steam-gui',
+  'gui',
   sources,
   dependencies: deps,
   vala_args: [
@@ -33,13 +33,13 @@ executable(
 
 # ── Desktop entry ─────────────────────────────────────────────────────────────
 install_data(
-  'data/io.hackeros.steam.desktop',
+  'data/Hackeros-Steam.desktop',
   install_dir: get_option('datadir') / 'applications',
 )
 
 # ── App icon (optional) ───────────────────────────────────────────────────────
 icon_dir = get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps'
-if fs.exists('data/io.hackeros.steam.svg')
+if fs.exists('data/hackeros-steam.svg')
   install_data(
     'data/io.hackeros.steam.svg',
     install_dir: icon_dir,
