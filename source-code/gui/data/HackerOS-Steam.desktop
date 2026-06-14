@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=HackerOS Steam
 Comment=Steam Container Manager — Distrobox + Arch Linux
-Exec=hackeros-steam gui
+Exec=hackeros-steam gu
 Icon=/usr/share/HackerOS/ICONS/HackerOS-Steam.png
 Terminal=false
 Type=Application
