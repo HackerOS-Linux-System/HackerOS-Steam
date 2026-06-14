@@ -1,9 +1,9 @@
 module tui
 
-go 1.22
+go 1.21
 
 require (
-	github.com/charmbracelet/bubbles v0.20.0
-	github.com/charmbracelet/bubbletea v1.2.4
-	github.com/charmbracelet/lipgloss v1.0.0
+	github.com/charmbracelet/bubbles v0.18.0
+	github.com/charmbracelet/bubbletea v0.26.0
+	github.com/charmbracelet/lipgloss v0.10.0
 )
