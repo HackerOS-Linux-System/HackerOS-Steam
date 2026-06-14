@@ -1,24 +1,29 @@
 project(
-  'gui',
+  'hackeros-steam-gui',
   'vala', 'c',
-  version: '2.0.0',
+  version: '2.1.0',
   meson_version: '>= 0.62.0',
   default_options: ['warning_level=2'],
 )
 
 fs = import('fs')
 
-# ── Dependencies ──────────────────────────────────────────────────────────────
+# ── Dependencies ──────────────────────────────────────────────────
 gtk4_dep = dependency('gtk4',    version: '>= 4.8')
 glib_dep = dependency('glib-2.0')
 gio_dep  = dependency('gio-2.0')
-
 deps = [gtk4_dep, glib_dep, gio_dep]
 
-# ── Sources ───────────────────────────────────────────────────────────────────
-sources = files('src/main.vala')
+# ── Sources ───────────────────────────────────────────────────────
+sources = files(
+  'src/terminal_view.vala',
+  'src/widgets.vala',
+  'src/css.vala',
+  'src/window.vala',
+  'src/app.vala',
+)
 
-# ── Executable ────────────────────────────────────────────────────────────────
+# ── Executable ────────────────────────────────────────────────────
 executable(
   'gui',
   sources,
@@ -31,15 +36,15 @@ executable(
   install_dir: get_option('bindir'),
 )
 
-# ── Desktop entry ─────────────────────────────────────────────────────────────
+# ── Desktop entry ─────────────────────────────────────────────────
 install_data(
-  'data/Hackeros-Steam.desktop',
+  'data/HackerOS-Steam.desktop',
   install_dir: get_option('datadir') / 'applications',
 )
 
-# ── App icon (optional) ───────────────────────────────────────────────────────
+# ── App icon (optional) ───────────────────────────────────────────
 icon_dir = get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps'
-if fs.exists('data/hackeros-steam.svg')
+if fs.exists('data/io.hackeros.steam.svg')
   install_data(
     'data/io.hackeros.steam.svg',
     install_dir: icon_dir,
