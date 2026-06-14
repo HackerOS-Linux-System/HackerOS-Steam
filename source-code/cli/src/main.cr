@@ -21,6 +21,9 @@ def print_help
   UI.print_help_row("status",             "Show container state and details")
   UI.print_help_row("list",               "List all distrobox containers")
   UI.print_help_row("install PKG...",     "Install additional Arch packages inside container")
+  UI.print_help_row("export",             "Export Steam app entry to host desktop")
+  UI.print_help_row("logs [N]",           "Show last N lines of Steam logs (default: 50)")
+  UI.print_help_row("shell",              "Open an interactive shell inside the container")
   UI.print_help_row("gui",               "Launch GTK4 GUI  (/usr/share/HackerOS/Scripts/Steam/bin/gui)")
   UI.print_help_row("tui",               "Launch terminal TUI  (/usr/share/HackerOS/Scripts/Steam/bin/tui)")
   UI.print_divider
@@ -30,13 +33,26 @@ def print_help
   puts "  #{BRIGHT_BLACK}HackerOS-Steam create --force#{RESET}"
   puts "  #{BRIGHT_BLACK}HackerOS-Steam run -gamepadui#{RESET}"
   puts "  #{BRIGHT_BLACK}HackerOS-Steam install mangohud lib32-mangohud#{RESET}"
+  puts "  #{BRIGHT_BLACK}HackerOS-Steam logs 100#{RESET}"
+  puts "  #{BRIGHT_BLACK}HackerOS-Steam shell#{RESET}"
   puts ""
+end
+
+def launch_external(path : String, name : String)
+  UI.print_info("Launching #{name}: #{path}")
+  unless File.executable?(path)
+    UI.print_error("#{name} binary not found or not executable: #{path}")
+    exit(1)
+  end
+  status = Process.run(path, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
+  unless status.success?
+    UI.print_error("#{name} exited with error.")
+    exit(1)
+  end
 end
 
 def main
   args = ARGV.dup
-
-  # Pull out global flags first
   force = args.delete("--force") != nil
   help  = args.delete("--help") != nil || args.delete("-h") != nil
 
@@ -46,71 +62,46 @@ def main
   end
 
   command = args.shift
-  rest    = args   # remaining args are either sub-flags or package names
+  rest    = args
 
   UI.print_banner
 
   case command
   when "create"
     Container.create(force: force)
-
   when "run"
     Container.run_steam(rest)
-
   when "setup"
     Container.setup
-
   when "kill", "stop"
     Container.kill
-
   when "remove", "rm", "delete"
     Container.remove(ask: !force)
-
   when "update", "upgrade"
     Container.update
-
   when "restart"
     Container.restart(rest)
-
   when "status"
     Container.status
-
   when "list", "ls"
     Container.list
-
   when "install"
     if rest.empty?
       UI.print_error("No packages specified. Usage:  HackerOS-Steam install PKG [PKG...]")
       exit(1)
     end
     Container.install_packages(rest)
-
+  when "export"
+    Container.export_app
+  when "logs"
+    lines = rest.first?.try(&.to_i?) || 50
+    Container.logs(lines)
+  when "shell", "sh"
+    Container.shell
   when "gui"
-    gui_path = "/usr/share/HackerOS/Scripts/Steam/bin/gui"
-    UI.print_info("Launching GUI: #{gui_path}")
-    unless File.executable?(gui_path)
-      UI.print_error("GUI binary not found or not executable: #{gui_path}")
-      exit(1)
-    end
-    status = Process.run(gui_path, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
-    unless status.success?
-      UI.print_error("GUI exited with error.")
-      exit(1)
-    end
-
+    launch_external("/usr/share/HackerOS/Scripts/Steam/bin/gui", "GUI")
   when "tui"
-    tui_path = "/usr/share/HackerOS/Scripts/Steam/bin/tui"
-    UI.print_info("Launching TUI: #{tui_path}")
-    unless File.executable?(tui_path)
-      UI.print_error("TUI binary not found or not executable: #{tui_path}")
-      exit(1)
-    end
-    status = Process.run(tui_path, output: Process::Redirect::Inherit, error: Process::Redirect::Inherit)
-    unless status.success?
-      UI.print_error("TUI exited with error.")
-      exit(1)
-    end
-
+    launch_external("/usr/share/HackerOS/Scripts/Steam/bin/tui", "TUI")
   else
     UI.print_error("Unknown command: '#{command}'")
     puts ""
