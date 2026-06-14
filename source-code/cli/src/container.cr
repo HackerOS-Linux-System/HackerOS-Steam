@@ -66,7 +66,6 @@ module Container
     end
   end
 
-  # Use plain `bash -c` (NOT -lc) — login shell in distrobox causes PATH issues
   def self.run_in_container(bash_cmd : String, silent : Bool = false)
     run_cmd!(["distrobox", "enter", CONTAINER_NAME, "--", "bash", "-c", bash_cmd], silent)
   end
@@ -98,32 +97,26 @@ module Container
 
   # ──────────────────────────────────────────────
   #  ENABLE MULTILIB
-  #  Uses sed to uncomment the [multilib] section.
-  #  Falls back to appending a fresh block if the
-  #  section doesn't exist at all.
   # ──────────────────────────────────────────────
+
   def self.enable_multilib
     UI.print_info("Enabling [multilib] in /etc/pacman.conf...")
-
-    # sed: uncomment #[multilib] and the #Include line immediately after it
     run_in_container(
       "sudo sed -i '/^#\\[multilib\\]/{s/^#//;n;s/^#//}' /etc/pacman.conf"
     )
-
-    # Verify multilib is now active
     unless run_in_container_ok?("grep -q '^\\[multilib\\]' /etc/pacman.conf")
       UI.print_warning("[multilib] section not found after sed — appending it...")
       run_in_container(
         "printf '\\n[multilib]\\nInclude = /etc/pacman.d/mirrorlist\\n' | sudo tee -a /etc/pacman.conf > /dev/null"
       )
     end
-
     UI.print_success("[multilib] enabled.")
   end
 
   # ──────────────────────────────────────────────
-  #  INSTALL STEAM  (shared by create & setup)
+  #  INSTALL STEAM
   # ──────────────────────────────────────────────
+
   def self.install_steam(step_start : Int32, total : Int32)
     s = step_start
 
@@ -152,6 +145,7 @@ module Container
   # ──────────────────────────────────────────────
   #  CREATE
   # ──────────────────────────────────────────────
+
   def self.create(force : Bool = false)
     UI.print_header("Creating Container")
 
@@ -186,10 +180,8 @@ module Container
 
   # ──────────────────────────────────────────────
   #  SETUP
-  #  Install/repair Steam in an existing container.
-  #  Useful when container was created manually or
-  #  Steam is missing for any reason.
   # ──────────────────────────────────────────────
+
   def self.setup
     UI.print_header("Setting Up Steam in Container")
     unless exists?
@@ -210,6 +202,7 @@ module Container
   # ──────────────────────────────────────────────
   #  KILL / STOP
   # ──────────────────────────────────────────────
+
   def self.kill
     UI.print_header("Stopping Container")
     unless exists?
@@ -228,6 +221,7 @@ module Container
   # ──────────────────────────────────────────────
   #  REMOVE
   # ──────────────────────────────────────────────
+
   def self.remove(ask : Bool = true)
     UI.print_header("Removing Container")
     unless exists?
@@ -246,6 +240,7 @@ module Container
   # ──────────────────────────────────────────────
   #  UPDATE
   # ──────────────────────────────────────────────
+
   def self.update
     UI.print_header("Updating Container")
     unless exists?
@@ -262,6 +257,7 @@ module Container
   # ──────────────────────────────────────────────
   #  RESTART
   # ──────────────────────────────────────────────
+
   def self.restart(steam_flags : Array(String) = [] of String)
     UI.print_header("Restarting Container")
     kill if running?
@@ -271,6 +267,7 @@ module Container
   # ──────────────────────────────────────────────
   #  RUN STEAM
   # ──────────────────────────────────────────────
+
   def self.run_steam(flags : Array(String) = [] of String)
     UI.print_header("Launching Steam")
     unless exists?
@@ -278,7 +275,6 @@ module Container
       exit(1)
     end
 
-    # Check Steam is actually installed before trying to run it
     unless run_in_container_ok?("test -x /usr/bin/steam")
       UI.print_error("Steam is not installed in the container!")
       UI.print_info("Fix it with:  HackerOS-Steam setup")
@@ -290,13 +286,13 @@ module Container
     UI.print_info("Flags     : #{flag_str}")
     puts ""
 
-    # Call /usr/bin/steam directly — no bash wrapper (avoids PATH issues)
     run_cmd!(["distrobox", "enter", CONTAINER_NAME, "--", "/usr/bin/steam"] + flags)
   end
 
   # ──────────────────────────────────────────────
   #  STATUS
   # ──────────────────────────────────────────────
+
   def self.status
     UI.print_header("Container Status")
     if exists?
@@ -333,6 +329,7 @@ module Container
   # ──────────────────────────────────────────────
   #  LIST
   # ──────────────────────────────────────────────
+
   def self.list
     UI.print_header("All Distrobox Containers")
     run_cmd!(["distrobox", "list"])
@@ -341,6 +338,7 @@ module Container
   # ──────────────────────────────────────────────
   #  INSTALL EXTRA PACKAGES
   # ──────────────────────────────────────────────
+
   def self.install_packages(packages : Array(String))
     UI.print_header("Installing Packages")
     unless exists?
@@ -350,5 +348,48 @@ module Container
     UI.print_info("Packages: #{packages.join(", ")}")
     run_in_container("sudo pacman -S --noconfirm --needed #{packages.join(" ")}")
     UI.print_success("Done — #{packages.size} package(s) installed.")
+  end
+
+  # ──────────────────────────────────────────────
+  #  EXPORT APP (Desktop integration)
+  # ──────────────────────────────────────────────
+
+  def self.export_app
+    UI.print_header("Exporting Steam to Host")
+    unless exists?
+      UI.print_error("Container does not exist — run:  HackerOS-Steam create")
+      exit(1)
+    end
+    UI.print_info("Exporting Steam desktop entry to host...")
+    run_in_container("distrobox-export --app steam --export-label ' (HackerOS)'")
+    UI.print_success("Steam exported. It should now appear in your app launcher.")
+  end
+
+  # ──────────────────────────────────────────────
+  #  LOGS
+  # ──────────────────────────────────────────────
+
+  def self.logs(lines : Int32 = 50)
+    UI.print_header("Steam Logs")
+    unless exists?
+      UI.print_error("Container does not exist.")
+      exit(1)
+    end
+    log_path = "~/.steam/steam/logs/bootstrap_log.txt"
+    run_in_container("tail -n #{lines} #{log_path} 2>/dev/null || echo '(no log found at #{log_path})'")
+  end
+
+  # ──────────────────────────────────────────────
+  #  SHELL
+  # ──────────────────────────────────────────────
+
+  def self.shell
+    UI.print_header("Container Shell")
+    unless exists?
+      UI.print_error("Container does not exist — run:  HackerOS-Steam create")
+      exit(1)
+    end
+    UI.print_info("Opening shell in #{CONTAINER_NAME}... (type 'exit' to leave)")
+    run_cmd!(["distrobox", "enter", CONTAINER_NAME])
   end
 end
