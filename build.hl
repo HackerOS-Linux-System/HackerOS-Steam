@@ -1,10 +1,8 @@
-// crystal
-// shards
 // golang
 // meson
 // ninja
 
 > cd source-code
->>> cd cli && shards build
+>>> cd cli && go get cli && go build
 >>> cd gui && meson setup build && ninja -C build
 >>> cd tui && go get tui && go build
