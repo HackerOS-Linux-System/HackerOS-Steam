@@ -1,7 +1,3 @@
-name: hackeros-steam
-version: 0.4
-authors:
-  - HackerOS Team <hackeros068@gmail.com>
-description: CLI binary for HackerOS-Steam
-crystal: ">= 1.0.0"
-license: GPL-3.0
+module hackeros-steam
+
+go 1.21
