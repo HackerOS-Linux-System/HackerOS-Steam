@@ -1,0 +1,9 @@
+[workspace]
+-> name    => HackerOS-Steam
+-> version => 0.5.0
+-> mode    => standard
+-> members => ["source-code/cli", "source-code/tui", "source-code/gui"]
+
+[build]
+-> parallel => true
+-> cache    => build/cache/
