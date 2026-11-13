@@ -1,9 +1,14 @@
 [workspace]
--> name    => HackerOS-Steam
--> version => 0.5.0
+-> members => [source-code/cli, source-code/tui, source-code/gui]
 -> mode    => standard
--> members => ["source-code/cli", "source-code/tui", "source-code/gui"]
 
-[build]
--> parallel => true
--> cache    => build/cache/
+[commands]
+-> check
+--> run => bit ws check
+--> description => Type-check every member
+-> clean
+--> run => bit ws clean
+--> description => Remove the shared cache/
+-> frontend
+--> run => cd source-code/gui && bit frontend
+--> description => Build the GUI front-end (TypeScript + Solid.js) into source-code/gui/frontend/dist
