@@ -1,0 +1,21 @@
+[package]
+-> name        => hackeros-steam
+-> version     => 0.5.0
+-> description => HackerOS Steam CLI — manage a Steam container with Distrobox + Arch Linux
+-> authors     => ["HackerOS Team <hackeros068@gmail.com>"]
+-> license     => GPL-3.0
+-> lang        => h#
+
+[edition]
+-> edition => 2026
+
+[layout]
+-> src => src
+
+[build]
+-> link => static
+
+[default-build]
+-> profile => release
+-> target  => h#
+-> emit    => bin
