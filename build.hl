@@ -1,8 +1,3 @@
-// golang
-// meson
-// ninja
+|| H#
 
-> cd source-code
->>> cd cli && go get cli && go build
->>> cd gui && meson setup build && ninja -C build
->>> cd tui && go get tui && go build
+> bit build --release
