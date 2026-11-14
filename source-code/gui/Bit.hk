@@ -1,0 +1,38 @@
+[package]
+-> name        => hackeros-steam-gui
+-> version     => 0.5.0
+-> description => HackerOS Steam — desktop GUI (H# back-end + TypeScript / Solid.js front-end on silver)
+-> authors     => ["HackerOS Team <hackeros068@gmail.com>"]
+-> license     => GPL-3.0
+-> lang        => h#
+
+[edition]
+-> edition => 2026
+
+[layout]
+-> src => src
+
+[build]
+-> link => static
+
+[default-build]
+-> profile => release
+-> target  => h#
+-> emit    => bin
+
+[dependencies]
+-> silver => newest
+
+[hooks]
+-> pre-build => cd frontend && npm install --no-audit --no-fund && npm run build
+
+[commands]
+-> frontend
+--> run => cd frontend && npm install --no-audit --no-fund && npm run build
+--> description => Build the front-end (TypeScript + Solid.js → frontend/dist/app.js)
+-> watch
+--> run => cd frontend && npm run watch
+--> description => Rebuild the front-end on every change (run next to `bit run` — hot reload picks up dist/app.js)
+-> typecheck
+--> run => cd frontend && npm install --no-audit --no-fund && npm run typecheck
+--> description => Type-check the TypeScript front-end (tsc --noEmit)
