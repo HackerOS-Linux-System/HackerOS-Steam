@@ -1,0 +1,77 @@
+use "bit -> tui" from "tui"
+
+;; ── palette (hex strings — tui::style_fg/bg accept "#rrggbb" directly) ──
+
+pub fn col_bg()      -> string is return "#0e1117" end
+pub fn col_bg_deep()  -> string is return "#080a0f" end
+pub fn col_bg_raise() -> string is return "#141920" end
+pub fn col_border()  -> string is return "#1e2535" end
+pub fn col_accent()  -> string is return "#4a9eff" end
+pub fn col_green()   -> string is return "#3ddc84" end
+pub fn col_red()     -> string is return "#ff4a6b" end
+pub fn col_yellow()  -> string is return "#ffb347" end
+pub fn col_purple()  -> string is return "#c792ea" end
+pub fn col_text()    -> string is return "#d6e0f0" end
+pub fn col_dim()     -> string is return "#3a4255" end
+pub fn col_sub()     -> string is return "#6b7a99" end
+pub fn col_select_bg() -> string is return "#0e2040" end
+
+;; ── shared styles ──
+
+pub fn style_title() -> any is
+    return tui::style_bold(tui::style_fg(tui::style_new(), col_accent()), true)
+end
+
+pub fn style_subtitle() -> any is
+    return tui::style_fg(tui::style_new(), col_sub())
+end
+
+pub fn style_section_label() -> any is
+    return tui::style_bold(tui::style_fg(tui::style_new(), col_dim()), true)
+end
+
+pub fn style_menu_item() -> any is
+    return tui::style_padding(tui::style_fg(tui::style_new(), col_text()), 2, 0)
+end
+
+pub fn style_menu_selected() -> any is
+    return tui::style_bold(tui::style_bg(tui::style_fg(tui::style_new(), col_accent()), col_select_bg()), true)
+end
+
+pub fn style_menu_icon() -> any is
+    return tui::style_fg(tui::style_new(), col_sub())
+end
+
+pub fn style_status_running() -> any is
+    return tui::style_bold(tui::style_fg(tui::style_new(), col_green()), true)
+end
+
+pub fn style_status_stopped() -> any is
+    return tui::style_bold(tui::style_fg(tui::style_new(), col_yellow()), true)
+end
+
+pub fn style_status_missing() -> any is
+    return tui::style_bold(tui::style_fg(tui::style_new(), col_red()), true)
+end
+
+pub fn style_status_check() -> any is
+    return tui::style_fg(tui::style_new(), col_dim())
+end
+
+pub fn style_log_info()    -> any is return tui::style_fg(tui::style_new(), col_accent()) end
+pub fn style_log_success() -> any is return tui::style_fg(tui::style_new(), col_green())  end
+pub fn style_log_error()   -> any is return tui::style_fg(tui::style_new(), col_red())    end
+pub fn style_log_warning() -> any is return tui::style_fg(tui::style_new(), col_yellow()) end
+pub fn style_log_header()  -> any is return tui::style_bold(tui::style_fg(tui::style_new(), col_purple()), true) end
+pub fn style_log_dim()     -> any is return tui::style_fg(tui::style_new(), col_dim())    end
+
+pub fn style_confirm_box() -> any is
+    let s: any = tui::style_border(tui::style_new(), "rounded")
+    let s2: any = tui::style_border_color(s, col_red())
+    let s3: any = tui::style_padding(s2, 4, 1)
+    return tui::style_fg(s3, col_text())
+end
+
+pub fn style_divider() -> any is
+    return tui::style_fg(tui::style_new(), col_border())
+end
