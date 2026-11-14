@@ -1,0 +1,102 @@
+mod colors
+
+use "std -> cli" from "cli"
+
+fn banner_art() -> string is
+    return "\n" + colors::bold() + colors::bright_cyan() + "\n" +
+        "  ██╗  ██╗ █████╗  ██████╗██╗  ██╗███████╗██████╗  ██████╗ ███████╗\n" +
+        "  ██║  ██║██╔══██╗██╔════╝██║ ██╔╝██╔════╝██╔══██╗██╔═══██╗██╔════╝\n" +
+        "  ███████║███████║██║     █████╔╝ █████╗  ██████╔╝██║   ██║███████╗\n" +
+        "  ██╔══██║██╔══██║██║     ██╔═██╗ ██╔══╝  ██╔══██╗██║   ██║╚════██║\n" +
+        "  ██║  ██║██║  ██║╚██████╗██║  ██╗███████╗██║  ██║╚██████╔╝███████║\n" +
+        "  ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝" + colors::reset()
+end
+
+pub fn print_banner() is
+    write(banner_art())
+
+    let term_width: int = 72
+    let subtitle: string = "  Steam Container Manager — powered by Distrobox + Arch Linux"
+    let mut padding: int = (term_width - string_len(subtitle)) / 2
+    if padding < 0 is padding = 0 end
+
+    write(colors::bold() + colors::bright_black() + string_repeat("─", 72) + colors::reset())
+    write(string_repeat(" ", padding) + colors::bright_magenta() + colors::bold() + subtitle + colors::reset())
+    write(colors::bold() + colors::bright_black() + string_repeat("─", 72) + colors::reset())
+    write("")
+end
+
+pub fn print_success(msg: string) is
+    write("  " + colors::bold() + colors::bright_green() + "✔" + colors::reset() +
+          "  " + colors::white() + msg + colors::reset())
+end
+
+pub fn print_info(msg: string) is
+    write("  " + colors::bold() + colors::bright_blue() + "→" + colors::reset() +
+          "  " + colors::bright_black() + msg + colors::reset())
+end
+
+pub fn print_warning(msg: string) is
+    write("  " + colors::bold() + colors::bright_yellow() + "⚠" + colors::reset() +
+          "  " + colors::yellow() + msg + colors::reset())
+end
+
+pub fn print_error(msg: string) is
+    write("  " + colors::bold() + colors::bright_red() + "✖" + colors::reset() +
+          "  " + colors::red() + msg + colors::reset())
+end
+
+pub fn print_header(title: string) is
+    let mut dashes: int = 50 - string_len(title)
+    if dashes < 0 is dashes = 0 end
+
+    write("")
+    write("  " + colors::bold() + colors::bright_cyan() + "┌─ " + string_upper_local(title) +
+          " " + colors::bright_black() + string_repeat("─", dashes) + colors::reset())
+    write("")
+end
+
+pub fn print_step(step: int, total: int, msg: string) is
+    let mut pct: int = 0
+    if total > 0 is pct = step * 100 / total end
+
+    let bar_filled: int = pct * 20 / 100
+    let bar: string = colors::bright_green() + string_repeat("█", bar_filled) +
+                       colors::bright_black() + string_repeat("░", 20 - bar_filled) + colors::reset()
+
+    write("  " + colors::bold() + colors::bright_black() + "[" + colors::bright_cyan() +
+          pad_left_int(step, 2) + "/" + to_string(total) + colors::bright_black() + "]" + colors::reset() +
+          " " + bar + " " + colors::bright_black() + to_string(pct) + "%" + colors::reset() +
+          "  " + colors::white() + msg + colors::reset())
+end
+
+pub fn print_status_row(label: string, value: string, color: string) is
+    write("  " + colors::bright_black() + string_pad_right(label, 18) + colors::reset() +
+          " " + color + value + colors::reset())
+end
+
+pub fn print_divider() is
+    write("  " + colors::bright_black() + string_repeat("─", 68) + colors::reset())
+end
+
+pub fn print_help_row(cmd: string, desc: string) is
+    write("  " + colors::bold() + colors::bright_cyan() + string_pad_right(cmd, 22) + colors::reset() +
+          " " + colors::bright_black() + desc + colors::reset())
+end
+
+pub fn confirm(prompt: string) -> bool is
+    return cli::confirm("  " + colors::bold() + colors::bright_yellow() + "?" + colors::reset() +
+                         "  " + colors::white() + prompt + colors::reset())
+end
+
+;; ── small local helpers (kept private, mirror Go's strings.Repeat/ToUpper) ──
+
+fn string_upper_local(s: string) -> string is
+    return string_upper(s)
+end
+
+fn pad_left_int(n: int, width: int) -> string is
+    let s: string = to_string(n)
+    if string_len(s) >= width is return s end
+    return string_repeat(" ", width - string_len(s)) + s
+end
