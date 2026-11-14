@@ -1,0 +1,220 @@
+use "std -> process" from "process"
+use "std -> fs"      from "fs"
+use "bit -> silver" from "silver"
+
+pub fn cli_path() -> string is return "/usr/bin/hackeros-steam" end
+
+fn log_path()    -> string is return "/tmp/hackeros-steam-gui.log" end
+fn status_path() -> string is return "/tmp/hackeros-steam-gui.status" end
+fn sent_path()   -> string is return "/tmp/hackeros-steam-gui.sent" end
+fn busy_path()   -> string is return "/tmp/hackeros-steam-gui.busy" end
+
+fn rc_marker() -> string is return "__HSH_RC__" end
+
+fn shell_quote(s: string) -> string is
+    return "'" + string_replace_all(s, "'", "'\\''") + "'"
+end
+
+fn shell_quote_join(args: [string]) -> string is
+    let mut parts: [string] = []
+    let mut i: int = 0
+    while i < array_len(args) is
+        parts.push(shell_quote(args[i]))
+        i += 1
+    end
+    return iter_join(parts, " ")
+end
+
+fn last_nonempty_line(s: string) -> string is
+    let parts: [string] = string_split(s, "\n")
+    let mut i: int = array_len(parts) - 1
+    while i >= 0 is
+        let line: string = string_trim(parts[i])
+        if string_len(line) > 0 is return line end
+        i -= 1
+    end
+    return ""
+end
+
+;; The log panel is a plain `<pre>` (Solid text node, never innerHTML) and
+;; can't render ANSI escapes — so, unlike the TUI (which recolours each line
+;; with its *own* styles), the GUI just strips colour entirely and
+;; keeps the plain text. Simpler and safe (no HTML injection surface
+;; from command output either), at the cost of the colour the CLI/TUI
+;; keep — an intentional, documented trade-off.
+fn strip_ansi(s: string) -> string is
+    let n: int = string_len(s)
+    let mut out: string = ""
+    let mut in_esc: bool = false
+    let mut i: int = 0
+    while i < n is
+        let ch: string = string_slice(s, i, i + 1)
+        if ch == "\x1b" is
+            in_esc = true
+            i += 1
+            continue
+        end
+        if in_esc is
+            if ch == "m" is in_esc = false end
+            i += 1
+            continue
+        end
+        out = out + ch
+        i += 1
+    end
+    return out
+end
+
+;; ── log/status/busy file helpers ──
+
+pub fn ensure_files() is
+    if !fs::exists(log_path()) is fs::write(log_path(), "  HackerOS Steam GUI — ready.\n  Use the sidebar to manage your container.\n") end
+    if !fs::exists(status_path()) is fs::write(status_path(), "checking") end
+    if !fs::exists(busy_path()) is fs::write(busy_path(), "0") end
+    fs::write(sent_path(), "")
+end
+
+pub fn read_log() -> string is
+    if !fs::exists(log_path()) is return "" end
+    return fs::read(log_path())
+end
+
+pub fn clear_log() is
+    fs::write(log_path(), "")
+end
+
+pub fn append_log(line: string) is
+    fs::append(log_path(), line + "\n")
+end
+
+pub fn read_status() -> string is
+    if !fs::exists(status_path()) is return "checking" end
+    return string_trim(fs::read(status_path()))
+end
+
+fn write_status(s: string) is
+    fs::write(status_path(), s)
+end
+
+pub fn read_busy() -> bool is
+    if !fs::exists(busy_path()) is return false end
+    return string_trim(fs::read(busy_path())) == "1"
+end
+
+fn write_busy(b: bool) is
+    if b is
+        fs::write(busy_path(), "1")
+    else is
+        fs::write(busy_path(), "0")
+    end
+end
+
+;; ── state snapshot pushed to the front-end ──
+
+;; {"log": "...", "status": "running|stopped|missing|checking", "busy": false}
+;; NB: braces are doubled — H# string literals interpolate `{expr}`.
+pub fn state_json() -> string is
+    let mut j: string = data::object()
+    j = data::set_str(j, "log", read_log())
+    j = data::set_str(j, "status", read_status())
+    j = data::set_bool(j, "busy", read_busy())
+    return j
+end
+
+;; Returns the snapshot only when it differs from the last one handed
+;; out (so on_tick emits on change instead of every 250 ms), else "".
+pub fn take_state_if_changed() -> string is
+    let now: string = state_json()
+    let prev: string = if fs::exists(sent_path()) then fs::read(sent_path()) else ""
+    if now == prev is return "" end
+    fs::write(sent_path(), now)
+    return now
+end
+
+;; ── status refresh (mirrors CLI's own `status` classification) ──
+
+pub fn refresh_status() is
+    write_status("checking")
+    let out: string = process::run(shell_quote(cli_path()) + " status 2>/dev/null")
+    let lo: string = string_lower(out)
+    if string_contains(lo, "does not exist") || string_contains(lo, "not created") is
+        write_status("missing")
+    else if string_contains(lo, "● running") || string_contains(lo, "running") is
+        write_status("running")
+    else is
+        write_status("stopped")
+    end
+end
+
+;; ── the one real "run a CLI command and show its output" primitive ──
+;; Blocks (no threads in this runtime — see container.h#'s comment for
+;; the same trade-off in the CLI itself), then writes everything to the
+;; log file in one shot and refreshes status. Returns JSON ok/false for
+;; the JS bridge, though the frontend template doesn't currently key off
+;; it (the log + status_badge already reflect the result).
+pub fn run_and_log(args: [string]) -> bool is
+    write_busy(true)
+    append_log("")
+    append_log("  $ hackeros-steam " + iter_join(args, " "))
+    append_log("")
+
+    let mut full: [string] = [cli_path()]
+    let mut i: int = 0
+    while i < array_len(args) is
+        full.push(args[i])
+        i += 1
+    end
+    let cmd_str: string = shell_quote_join(full)
+
+    let raw: string = process::run(cmd_str + "; printf '\\n" + rc_marker() + "%d\\n' $?")
+    let ok: bool = last_nonempty_line(raw) == (rc_marker() + "0")
+    let stripped: string = strip_ansi(raw)
+    let lines: [string] = string_split(stripped, "\n")
+    let mut j: int = 0
+    while j < array_len(lines) is
+        if !string_starts_with(string_trim(lines[j]), rc_marker()) is
+            append_log(lines[j])
+        end
+        j += 1
+    end
+
+    if ok is
+        append_log("  ✔  Done.")
+    else is
+        append_log("  ✖  Command exited with error.")
+    end
+    append_log("")
+
+    write_busy(false)
+    refresh_status()
+    return ok
+end
+
+;; ── spawn a detached terminal running `distrobox enter <name>` ──
+;; (Vala's `open_shell_terminal()` equivalent.) Tries a short list of
+;; common terminal emulators in order and backgrounds the first one
+;; found — this must NOT block the GUI, so `process::spawn` (inherits
+;; stdio, fire-and-forget, doesn't wait) is the right primitive here,
+;; unlike everything else in this file.
+pub fn open_shell_terminal() -> bool is
+    let inner: string = "distrobox enter HackerOS-Steam"
+    let terms: [string] = [
+        "x-terminal-emulator -e bash -c " + shell_quote(inner + "; exec bash"),
+        "gnome-terminal -- bash -c " + shell_quote(inner + "; exec bash"),
+        "konsole -e bash -c " + shell_quote(inner + "; exec bash"),
+        "xfce4-terminal -e bash -c " + shell_quote(inner + "; exec bash"),
+        "alacritty -e bash -c " + shell_quote(inner + "; exec bash"),
+        "kitty bash -c " + shell_quote(inner + "; exec bash"),
+        "xterm -e bash -c " + shell_quote(inner + "; exec bash"),
+    ]
+    let mut i: int = 0
+    while i < array_len(terms) is
+        let bin: string = string_split(terms[i], " ")[0]
+        if process::which(bin) != "" is
+            process::spawn(terms[i])
+            return true
+        end
+        i += 1
+    end
+    return false
+end
