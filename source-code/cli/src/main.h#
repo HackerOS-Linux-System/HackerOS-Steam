@@ -50,7 +50,7 @@ fn launch_external(path: string, name: string) is
         ui::print_error(name + " binary not found or not executable: " + path)
         exit(1)
     end
-    if !container::run_cmd([path], false) is
+    if !container::run_interactive([path]) is
         ui::print_error(name + " exited with error.")
         exit(1)
     end
