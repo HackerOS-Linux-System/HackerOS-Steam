@@ -1,0 +1,142 @@
+mod colors
+mod ui
+mod container
+
+use "std -> env"     from "env"
+use "std -> process" from "process"
+
+extern static [c] is
+    fn exit(code: int)
+end
+
+fn print_help() is
+    ui::print_banner()
+    write("  " + colors::bold() + colors::white() + "USAGE" + colors::reset())
+    write("  " + colors::bright_black() + "HackerOS-Steam " + colors::cyan() + "<command> " +
+          colors::bright_black() + "[options] [flags]" + colors::reset())
+    write("")
+    write("  " + colors::bold() + colors::white() + "COMMANDS" + colors::reset())
+    ui::print_divider()
+    ui::print_help_row("create [--force]", "Create the Steam container (Arch + multilib + Steam)")
+    ui::print_help_row("setup", "Install Steam into an existing container (repair)")
+    ui::print_help_row("run [flags...]", "Launch Steam (e.g. -gamepadui -steamos3 -steamdeck)")
+    ui::print_help_row("kill", "Stop the running container")
+    ui::print_help_row("remove", "Remove the container (asks for confirmation)")
+    ui::print_help_row("update", "Update container OS + all packages")
+    ui::print_help_row("restart [flags...]", "Stop then relaunch Steam")
+    ui::print_help_row("status", "Show container state and details")
+    ui::print_help_row("list", "List all distrobox containers")
+    ui::print_help_row("install PKG...", "Install additional Arch packages inside container")
+    ui::print_help_row("export", "Export Steam app entry to host desktop")
+    ui::print_help_row("logs [N]", "Show last N lines of Steam logs (default: 50)")
+    ui::print_help_row("shell", "Open an interactive shell inside the container")
+    ui::print_help_row("gui", "Launch GTK4 GUI  (/usr/share/HackerOS/Scripts/Steam/bin/gui)")
+    ui::print_help_row("tui", "Launch terminal TUI  (/usr/share/HackerOS/Scripts/Steam/bin/tui)")
+    ui::print_divider()
+    write("")
+    write("  " + colors::bold() + colors::white() + "EXAMPLES" + colors::reset())
+    write("  " + colors::bright_black() + "HackerOS-Steam create" + colors::reset())
+    write("  " + colors::bright_black() + "HackerOS-Steam create --force" + colors::reset())
+    write("  " + colors::bright_black() + "HackerOS-Steam run -gamepadui" + colors::reset())
+    write("  " + colors::bright_black() + "HackerOS-Steam install mangohud lib32-mangohud" + colors::reset())
+    write("  " + colors::bright_black() + "HackerOS-Steam logs 100" + colors::reset())
+    write("  " + colors::bright_black() + "HackerOS-Steam shell" + colors::reset())
+    write("")
+end
+
+fn launch_external(path: string, name: string) is
+    ui::print_info("Launching " + name + ": " + path)
+    if process::which(path) != path is
+        ui::print_error(name + " binary not found or not executable: " + path)
+        exit(1)
+    end
+    if !container::run_cmd([path], false) is
+        ui::print_error(name + " exited with error.")
+        exit(1)
+    end
+end
+
+fn main() is
+    let raw_args: [string] = env::args()
+
+    ;; Extract flags (mirrors Go's filtered-slice trick)
+    let mut force:    bool     = false
+    let mut help:     bool     = false
+    let mut args:     [string] = []
+
+    let mut i: int = 1 ;; skip argv[0]
+    while i < array_len(raw_args) is
+        let a: string = raw_args[i]
+        if a == "--force" is
+            force = true
+        else if a == "--help" || a == "-h" is
+            help = true
+        else is
+            args.push(a)
+        end
+        i += 1
+    end
+
+    if help || array_len(args) == 0 is
+        print_help()
+        if array_len(args) == 0 && !help is
+            exit(1)
+        end
+        exit(0)
+    end
+
+    let command: string = args[0]
+    let mut rest: [string] = []
+    let mut j: int = 1
+    while j < array_len(args) is
+        rest.push(args[j])
+        j += 1
+    end
+
+    ui::print_banner()
+
+    if command == "create" is
+        container::create(force)
+    else if command == "run" is
+        container::run_steam(rest)
+    else if command == "setup" is
+        container::setup()
+    else if command == "kill" || command == "stop" is
+        container::kill()
+    else if command == "remove" || command == "rm" || command == "delete" is
+        container::remove(!force)
+    else if command == "update" || command == "upgrade" is
+        container::update()
+    else if command == "restart" is
+        container::restart(rest)
+    else if command == "status" is
+        container::status()
+    else if command == "list" || command == "ls" is
+        container::list()
+    else if command == "install" is
+        if array_len(rest) == 0 is
+            ui::print_error("No packages specified. Usage:  HackerOS-Steam install PKG [PKG...]")
+            exit(1)
+        end
+        container::install_packages(rest)
+    else if command == "export" is
+        container::export_app()
+    else if command == "logs" is
+        let mut lines: int = 50
+        if array_len(rest) > 0 is
+            lines = str_to_int(rest[0])
+        end
+        container::logs(lines)
+    else if command == "shell" || command == "sh" is
+        container::shell()
+    else if command == "gui" is
+        launch_external("/usr/share/HackerOS/Scripts/Steam/bin/gui", "GUI")
+    else if command == "tui" is
+        launch_external("/usr/share/HackerOS/Scripts/Steam/bin/tui", "TUI")
+    else is
+        ui::print_error("Unknown command: '" + command + "'")
+        write("")
+        print_help()
+        exit(1)
+    end
+end
