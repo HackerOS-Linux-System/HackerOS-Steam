@@ -1,0 +1,28 @@
+pub struct MenuItem is
+    pub icon:    string
+    pub label:   string
+    pub section: string
+    pub cmd:     [string]
+    pub confirm: bool
+end
+
+pub fn menu_items() -> [MenuItem] is
+    return [
+        MenuItem { section: "STEAM", icon: "▶", label: "Launch Steam", cmd: ["run"], confirm: false },
+        MenuItem { section: "", icon: "▣", label: "Big Picture Mode", cmd: ["run", "-gamepadui"], confirm: false },
+        MenuItem { section: "", icon: "▣", label: "Steam Deck Mode", cmd: ["run", "-steamos3", "-steamdeck"], confirm: false },
+
+        MenuItem { section: "CONTAINER", icon: "+", label: "Create Container", cmd: ["create"], confirm: false },
+        MenuItem { section: "", icon: "✱", label: "Setup / Repair Steam", cmd: ["setup"], confirm: false },
+        MenuItem { section: "", icon: "↑", label: "Update Container", cmd: ["update"], confirm: false },
+        MenuItem { section: "", icon: "■", label: "Stop Container", cmd: ["kill"], confirm: false },
+        MenuItem { section: "", icon: "✕", label: "Remove Container", cmd: ["--force", "remove"], confirm: true },
+
+        MenuItem { section: "TOOLS", icon: "↗", label: "Export to Desktop", cmd: ["export"], confirm: false },
+        MenuItem { section: "", icon: "▢", label: "Open Shell", cmd: ["shell"], confirm: false },
+        MenuItem { section: "", icon: "≡", label: "View Logs (50)", cmd: ["logs", "50"], confirm: false },
+
+        MenuItem { section: "INFO", icon: "i", label: "Container Status", cmd: ["status"], confirm: false },
+        MenuItem { section: "", icon: "≡", label: "List All Containers", cmd: ["list"], confirm: false },
+    ]
+end
