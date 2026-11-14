@@ -1,0 +1,23 @@
+mod model
+mod view
+
+use "bit -> tui" from "tui"
+
+;; NB: pass *local* functions to tui::run. Module-qualified function values
+;; (`model::init`) compile to an empty std::function in the C++ backend and
+;; crash at start-up with `bad_function_call`; local wrappers work.
+fn app_init() -> any is
+    return model::init()
+end
+
+fn app_update(m: any, msg: any) -> (any, fn() -> any) is
+    return model::update(m, msg)
+end
+
+fn app_view(m: any) -> string is
+    return view::view(m)
+end
+
+fn main() is
+    tui::run(app_init, app_update, app_view)
+end
