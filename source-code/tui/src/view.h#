@@ -1,0 +1,172 @@
+mod menu
+mod model
+mod styles
+
+use "bit -> tui" from "tui"
+
+fn status_badge(status: string) -> string is
+    if status == "running" is
+        return tui::style_render(styles::style_status_running(), "● RUNNING")
+    end
+    if status == "stopped" is
+        return tui::style_render(styles::style_status_stopped(), "○ STOPPED")
+    end
+    if status == "missing" is
+        return tui::style_render(styles::style_status_missing(), "✕ NOT CREATED")
+    end
+    return tui::style_render(styles::style_status_check(), "… checking")
+end
+
+;; Printable width = UTF-8 code points, not bytes (h# slices/lens by byte, so
+;; "…" or "●" would otherwise count as 3 columns and skew the right-aligned badge).
+fn display_width(s: string) -> int is
+    let n: int = string_len(s)
+    let mut cnt: int = 0
+    let mut i: int = 0
+    while i < n is
+        let b: int = __builtin_str_to_char_code(string_slice(s, i, i + 1))
+        if b < 128 || b >= 192 is cnt += 1 end
+        i += 1
+    end
+    return cnt
+end
+
+fn render_header(m: model::Model) -> string is
+    let title: string = tui::style_render(styles::style_title(), "HackerOS Steam")
+    let sub: string = tui::style_render(styles::style_subtitle(), "  Steam Container Manager")
+    let badge: string = status_badge(m.container_status)
+
+    let left: string = title + sub
+    let left_w: int = display_width(strip_visible(left))
+    let total_w: int = m.width - 4
+    let mut pad: int = total_w - left_w - display_width(strip_visible(badge))
+    if pad < 1 is pad = 1 end
+
+    let line: string = left + string_repeat(" ", pad) + badge
+    let rule: string = tui::style_render(styles::style_divider(), string_repeat("─", total_w))
+    return line + "\n" + rule
+end
+
+;; Fake "visible length" helper — styled strings still carry ANSI codes,
+;; and header alignment only cares about *printable* width, so reuse the
+;; same ANSI-stripping routine utils.h# uses for log lines.
+fn strip_visible(s: string) -> string is
+    let n: int = string_len(s)
+    let mut out: string = ""
+    let mut in_esc: bool = false
+    let mut i: int = 0
+    while i < n is
+        let ch: string = string_slice(s, i, i + 1)
+        if ch == "\x1b" is
+            in_esc = true
+            i += 1
+            continue
+        end
+        if in_esc is
+            if ch == "m" is in_esc = false end
+            i += 1
+            continue
+        end
+        out = out + ch
+        i += 1
+    end
+    return out
+end
+
+fn render_sidebar(m: model::Model) -> string is
+    let items: [menu::MenuItem] = menu::menu_items()
+    let mut lines: [string] = []
+    let mut i: int = 0
+    while i < array_len(items) is
+        let item: menu::MenuItem = items[i]
+        if string_len(item.section) > 0 is
+            if i > 0 is lines.push("") end
+            lines.push(tui::style_render(styles::style_section_label(), item.section))
+        end
+
+        let row: string = " " + item.icon + "  " + item.label
+        if i == m.cursor is
+            lines.push(tui::style_render(styles::style_menu_selected(), "›" + row))
+        else is
+            lines.push(tui::style_render(styles::style_menu_item(), " " + row))
+        end
+        i += 1
+    end
+
+    let body: string = tui::join_vertical(lines)
+    let box_style: any = tui::style_border(tui::style_new(), "rounded")
+    let box2: any = tui::style_border_color(box_style, styles::col_border())
+    let box3: any = tui::style_width(box2, 30)
+    let box4: any = tui::style_padding(box3, 1, 1)
+    return tui::style_render(box4, body)
+end
+
+fn render_log_panel(m: model::Model, height: int) -> string is
+    let all: [string] = m.log_lines
+    let n: int = array_len(all)
+    let mut start: int = n - height
+    if start < 0 is start = 0 end
+
+    let mut visible: [string] = []
+    let mut i: int = start
+    while i < n is
+        visible.push(all[i])
+        i += 1
+    end
+    while array_len(visible) < height is
+        visible.push("")
+    end
+
+    let body: string = tui::join_vertical(visible)
+    let box_style: any = tui::style_border(tui::style_new(), "rounded")
+    let box2: any = tui::style_border_color(box_style, styles::col_border())
+    let box3: any = tui::style_width(box2, m.width - 42)
+    let box4: any = tui::style_padding(box3, 1, 0)
+    return tui::style_render(box4, body)
+end
+
+fn render_confirm(m: model::Model) -> string is
+    let msg: string = "Remove container '" + m.pending_cmd[array_len(m.pending_cmd) - 1] + "' ?\n\n" +
+        "This cannot be undone.\n\n" +
+        tui::style_render(tui::style_bold(tui::style_new(), true), "y") + " = yes     " +
+        tui::style_render(tui::style_bold(tui::style_new(), true), "n") + " = cancel"
+    return tui::style_render(styles::style_confirm_box(), msg)
+end
+
+fn render_footer(m: model::Model) -> string is
+    let mut hint: string = "↑/↓ navigate   enter select   r refresh status   q quit"
+    if m.busy is
+        hint = tui::style_render(tui::style_bold(tui::style_new(), true),
+            tui::spinner_view(m.spinner) + "  working…")
+    end
+    if m.state == "confirm" is
+        hint = "y confirm   n / esc cancel"
+    end
+    return tui::style_render(styles::style_subtitle(), "  " + hint)
+end
+
+pub fn view(model: any) -> string is
+    let m: model::Model = model
+    let header: string = render_header(m)
+    let sidebar: string = render_sidebar(m)
+
+    let log_height: int = m.height - 10
+    let mut lh: int = log_height
+    if lh < 5 is lh = 5 end
+    let log_panel: string = render_log_panel(m, lh)
+
+    ;; The "OUTPUT" caption is its own row *above* the two columns. Prepending it to
+    ;; the log panel's string made that column one row taller than the sidebar, so
+    ;; join_horizontal shifted every row and padded lines to ~2x the terminal width.
+    let caption: string = string_repeat(" ", 36) + tui::style_render(styles::style_section_label(), " OUTPUT ")
+    let body: string = caption + "\n" + tui::join_horizontal([sidebar, log_panel], 2)
+    let footer: string = render_footer(m)
+
+    let mut out: string = header + "\n\n" + body + "\n\n" + footer
+
+    if m.state == "confirm" is
+        out = out + "\n\n" + render_confirm(m)
+    end
+
+    return out
+end
