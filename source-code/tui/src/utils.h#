@@ -1,0 +1,57 @@
+mod styles
+
+use "bit -> tui" from "tui"
+
+;; ── ANSI strip ──
+;; Byte-at-a-time scan, identical shape to the Go original (which walks
+;; runes looking for ESC ... 'm').
+pub fn strip_ansi(s: string) -> string is
+    let n: int = string_len(s)
+    let mut out: string = ""
+    let mut in_esc: bool = false
+    let mut i: int = 0
+    while i < n is
+        let ch: string = string_slice(s, i, i + 1)
+        if ch == "\x1b" is
+            in_esc = true
+            i += 1
+            continue
+        end
+        if in_esc is
+            if ch == "m" is
+                in_esc = false
+            end
+            i += 1
+            continue
+        end
+        out = out + ch
+        i += 1
+    end
+    return out
+end
+
+;; ── ColorLine — apply a tui Style based on line content ──
+pub fn color_line(line: string) -> string is
+    let l: string = line
+    if string_contains(l, "✔") || string_contains(l, "Done") || string_contains(l, "complete") is
+        return tui::style_render(styles::style_log_success(), l)
+    end
+    if string_contains(l, "✖") || string_contains(l, "error") ||
+       string_contains(l, "failed") || string_contains(l, "Error") is
+        return tui::style_render(styles::style_log_error(), l)
+    end
+    if string_contains(l, "⚠") || string_contains(l, "warning") ||
+       string_contains(l, "skipped") || string_contains(l, "Warning") is
+        return tui::style_render(styles::style_log_warning(), l)
+    end
+    if string_contains(l, "─ ") || string_contains(l, "LAUNCH") ||
+       string_contains(l, "CREAT") || string_contains(l, "SETUP") ||
+       string_contains(l, "UPDAT") || string_contains(l, "REMOV") ||
+       string_contains(l, "STATUS") || string_contains(l, "STOP") is
+        return tui::style_render(styles::style_log_header(), l)
+    end
+    if string_contains(l, "→") || string_contains(l, "$") is
+        return tui::style_render(styles::style_log_info(), l)
+    end
+    return tui::style_render(styles::style_log_dim(), l)
+end
