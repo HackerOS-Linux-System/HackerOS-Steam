@@ -24,7 +24,7 @@ pub fn new_model(path: string) -> Model is
     let sp: any = tui::spinner_new("dot")
     let mut lines: [string] = []
     lines.push(tui::style_render(styles::style_log_header(), "  HackerOS Steam TUI — ready."))
-    lines.push(tui::style_render(styles::style_log_dim(), "  Use ↑/↓ to navigate, Enter to execute."))
+    lines.push(tui::style_render(styles::style_log_dim(), "  Use ↑/↓ (or j/k) to navigate, Enter to execute, q to quit."))
 
     return Model {
         cli_path: path,
@@ -134,7 +134,7 @@ fn run_command_cmd(path: string, args: [string]) -> fn() -> any is
     let cmd_str: string = shell_quote_join(full)
 
     return || -> any is
-        let raw: string = process::run(cmd_str + "; printf '\\n" + rc_marker() + "%d\\n' $?")
+        let raw: string = process::run(cmd_str + " </dev/null 2>&1; printf '\\n" + rc_marker() + "%d\\n' $?")
         let ok: bool = last_nonempty_line(raw) == (rc_marker() + "0")
         let stripped: string = utils::strip_ansi(raw)
         let lines: [string] = string_split(stripped, "\n")
@@ -154,7 +154,7 @@ end
 
 fn check_status_cmd(path: string) -> fn() -> any is
     return || -> any is
-        let out: string = process::run(shell_quote(path) + " status 2>/dev/null")
+        let out: string = process::run(shell_quote(path) + " status </dev/null 2>/dev/null")
         let lo: string = string_lower(out)
         if string_contains(lo, "does not exist") || string_contains(lo, "not created") is
             return tui::custom_msg("STATUS:missing")
@@ -196,8 +196,36 @@ pub fn update(model_any: any, msg: any) -> (any, fn() -> any) is
         return (m2, tui::cmd_none())
     end
 
-    if tui::msg_is_key(msg, "q") && model.state == "menu" is
+    ;; Quit: q / esc / ctrl+c from the menu (ctrl+c is also handled by the tui
+    ;; loop itself, so it works in every state).
+    if (tui::msg_is_key(msg, "q") || tui::msg_is_key(msg, "esc") || tui::is_ctrl_c(msg)) && model.state == "menu" is
         return (model, tui::cmd_quit())
+    end
+    if tui::is_ctrl_c(msg) is
+        return (model, tui::cmd_quit())
+    end
+
+    ;; Extra navigation: home/end (g/G), pgup/pgdown, mouse wheel.
+    if model.state == "menu" is
+        let last: int = array_len(menu::menu_items()) - 1
+        if tui::msg_is_key(msg, "home") || tui::msg_is_key(msg, "g") || tui::msg_is_key(msg, "pgup") is
+            return (with_cursor(model, 0), tui::cmd_none())
+        end
+        if tui::msg_is_key(msg, "end") || tui::msg_is_key(msg, "G") || tui::msg_is_key(msg, "pgdown") is
+            return (with_cursor(model, last), tui::cmd_none())
+        end
+        if tui::msg_is_wheel_up(msg) is
+            if model.cursor > 0 is
+                return (with_cursor(model, model.cursor - 1), tui::cmd_none())
+            end
+            return (model, tui::cmd_none())
+        end
+        if tui::msg_is_wheel_down(msg) is
+            if model.cursor < last is
+                return (with_cursor(model, model.cursor + 1), tui::cmd_none())
+            end
+            return (model, tui::cmd_none())
+        end
     end
 
     if (tui::msg_is_key(msg, "up") || tui::msg_is_key(msg, "k")) && model.state == "menu" is
@@ -216,6 +244,12 @@ pub fn update(model_any: any, msg: any) -> (any, fn() -> any) is
     if (tui::msg_is_key(msg, "enter") || tui::msg_is_key(msg, "space")) && model.state == "menu" is
         if !model.busy is
             let item: menu::MenuItem = menu::menu_items()[model.cursor]
+            if item.cmd[0] == "shell" is
+                let mut m0: Model = append_log(model, "")
+                m0 = append_log(m0, tui::style_render(styles::style_log_dim(), "  The interactive shell cannot run inside the log pane."))
+                m0 = append_log(m0, tui::style_render(styles::style_log_dim(), "  Quit (q) and run:  hackeros-steam shell"))
+                return (m0, tui::cmd_none())
+            end
             if item.confirm is
                 let m1: Model = with_state(model, "confirm")
                 return (with_pending(m1, item.cmd), tui::cmd_none())
