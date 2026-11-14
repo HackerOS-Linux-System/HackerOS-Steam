@@ -100,6 +100,18 @@ pub fn run_cmd(args: [string], silent: bool) -> bool is
     return r.ok
 end
 
+;; RunInteractive(args) — run a program that needs the real terminal (a TUI,
+;; a shell, a GUI that prints to the console). `process::run` captures stdout
+;; in a pipe, which blanks a full-screen program and — worse — leaves it with
+;; no usable keyboard. Here the child's stdin/stdout/stderr are wired straight
+;; to /dev/tty (nothing is captured, so nothing is printed afterwards) and only
+;; the exit status travels back through the pipe. Returns true if it exited 0.
+pub fn run_interactive(args: [string]) -> bool is
+    let cmd: string = shell_quote_join(args)
+    let raw: string = process::run(cmd + " </dev/tty >/dev/tty 2>&1; printf '\\n" + rc_marker() + "%d\\n' $?")
+    return last_nonempty_line(raw) == (rc_marker() + "0")
+end
+
 pub fn run_cmd_must(args: [string], silent: bool) is
     if !run_cmd(args, silent) is
         ui::print_error("Command failed: " + iter_join(args, " "))
@@ -471,7 +483,10 @@ pub fn shell() is
         exit(1)
     end
     ui::print_info("Opening shell in " + container_name() + "... (type 'exit' to leave)")
-    run_cmd_must(["distrobox", "enter", container_name()], false)
+    if !run_interactive(["distrobox", "enter", container_name()]) is
+        ui::print_error("Command failed: distrobox enter " + container_name())
+        exit(1)
+    end
 end
 
 ;; ── libc exit(), same FFI pattern bit-main/src/main.h# already uses ──
