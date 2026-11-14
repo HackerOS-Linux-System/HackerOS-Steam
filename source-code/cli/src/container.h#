@@ -1,0 +1,480 @@
+mod colors
+mod ui
+
+use "std -> process" from "process"
+
+pub fn container_name() -> string is return "HackerOS-Steam" end
+pub fn distro_image()   -> string is return "docker.io/archlinux:latest" end
+
+fn rc_marker() -> string is return "__HSH_RC__" end
+
+pub fn steam_packages() -> [string] is
+    return [
+        "steam",
+        "lib32-mesa",
+        "lib32-vulkan-icd-loader",
+        "lib32-alsa-lib",
+        "lib32-gcc-libs",
+        "lib32-gtk3",
+        "lib32-libgcrypt",
+        "lib32-libpulse",
+        "lib32-libva",
+        "lib32-libxml2",
+        "lib32-nss",
+        "lib32-openal",
+        "lib32-sdl2",
+        "lib32-vulkan-intel",
+        "lib32-vulkan-radeon",
+        "lib32-vulkan-freedreno",
+        "lib32-vulkan-nouveau",
+        "lib32-vulkan-swrast",
+        "lib32-vulkan-virtio",
+        "lib32-libxss",
+        "lib32-libgpg-error",
+        "lib32-dbus",
+        "noto-fonts",
+        "ttf-bitstream-vera",
+        "ttf-croscore",
+        "ttf-dejavu",
+        "ttf-droid",
+        "ttf-ibm-plex",
+        "ttf-liberation",
+        "ttf-roboto",
+    ]
+end
+
+pub fn nvidia_packages() -> [string] is
+    return ["lib32-nvidia-utils"]
+end
+
+;; ──────────────────────────────────────────────
+;;  LOW-LEVEL SHELL HELPERS
+;; ──────────────────────────────────────────────
+
+fn last_nonempty_line(s: string) -> string is
+    let parts: [string] = string_split(s, "\n")
+    let mut i: int = array_len(parts) - 1
+    while i >= 0 is
+        let line: string = string_trim(parts[i])
+        if string_len(line) > 0 is return line end
+        i -= 1
+    end
+    return ""
+end
+
+;; Runs `cmd` through the shell, captures combined output, and returns
+;; both the visible output lines (marker line stripped) and whether the
+;; command exited 0.
+struct ShResult is
+    pub output: string
+    pub ok:     bool
+end
+
+fn sh_run(cmd: string) -> ShResult is
+    let raw: string = process::run(cmd + "; printf '\\n" + rc_marker() + "%d\\n' $?")
+    let ok:  bool   = last_nonempty_line(raw) == (rc_marker() + "0")
+
+    let lines: [string] = string_split(raw, "\n")
+    let mut kept: [string] = []
+    let mut i: int = 0
+    while i < array_len(lines) is
+        if !string_starts_with(string_trim(lines[i]), rc_marker()) is
+            kept.push(lines[i])
+        end
+        i += 1
+    end
+    return ShResult { output: iter_join(kept, "\n"), ok: ok }
+end
+
+;; RunCmd(args, silent) — run a program (argv, no shell) and print its
+;; output. Returns true if it exited 0.
+pub fn run_cmd(args: [string], silent: bool) -> bool is
+    if !silent is
+        ui::print_info("$ " + iter_join(args, " "))
+    end
+    let cmd: string = shell_quote_join(args)
+    let r: ShResult = sh_run(cmd)
+    if string_len(string_trim(r.output)) > 0 is
+        write(r.output)
+    end
+    return r.ok
+end
+
+pub fn run_cmd_must(args: [string], silent: bool) is
+    if !run_cmd(args, silent) is
+        ui::print_error("Command failed: " + iter_join(args, " "))
+        exit(1)
+    end
+end
+
+pub fn run_in_container(bash_cmd: string, silent: bool) is
+    run_cmd_must(["distrobox", "enter", container_name(), "--", "bash", "-c", bash_cmd], silent)
+end
+
+pub fn run_in_container_ok(bash_cmd: string) -> bool is
+    return run_cmd(["distrobox", "enter", container_name(), "--", "bash", "-c", bash_cmd], true)
+end
+
+pub fn exists() -> bool is
+    let out: string = process::run("distrobox list --no-color")
+    return string_contains(out, container_name())
+end
+
+pub fn running() -> bool is
+    let out: string = process::run("distrobox list --no-color")
+    let lines: [string] = string_split(out, "\n")
+    let mut i: int = 0
+    while i < array_len(lines) is
+        if string_contains(lines[i], container_name()) && string_contains(lines[i], "Up") is
+            return true
+        end
+        i += 1
+    end
+    return false
+end
+
+pub fn detail_line() -> string is
+    let out: string = process::run("distrobox list --no-color")
+    let lines: [string] = string_split(out, "\n")
+    let mut i: int = 0
+    while i < array_len(lines) is
+        if string_contains(lines[i], container_name()) is return lines[i] end
+        i += 1
+    end
+    return ""
+end
+
+;; Quote+join argv into a single shell-safe command string (single
+;; quotes, doubled the POSIX way: ' -> '\'' ), since every H# process
+;; primitive here ultimately runs through /bin/sh -c.
+fn shell_quote_join(args: [string]) -> string is
+    let mut parts: [string] = []
+    let mut i: int = 0
+    while i < array_len(args) is
+        parts.push(shell_quote(args[i]))
+        i += 1
+    end
+    return iter_join(parts, " ")
+end
+
+fn shell_quote(s: string) -> string is
+    return "'" + string_replace_all(s, "'", "'\\''") + "'"
+end
+
+;; ──────────────────────────────────────────────
+;;  ENABLE MULTILIB
+;; ──────────────────────────────────────────────
+
+pub fn enable_multilib() is
+    ui::print_info("Enabling [multilib] in /etc/pacman.conf...")
+    run_in_container("sudo sed -i '/^#\\[multilib\\]/{s/^#//;n;s/^#//}' /etc/pacman.conf", false)
+    if !run_in_container_ok("grep -q '^\\[multilib\\]' /etc/pacman.conf") is
+        ui::print_warning("[multilib] section not found after sed — appending it...")
+        run_in_container("printf '\\n[multilib]\\nInclude = /etc/pacman.d/mirrorlist\\n' | sudo tee -a /etc/pacman.conf > /dev/null", false)
+    end
+    ui::print_success("[multilib] enabled.")
+end
+
+;; ──────────────────────────────────────────────
+;;  INSTALL STEAM
+;; ──────────────────────────────────────────────
+
+pub fn install_steam(step_start: int, total: int) is
+    let mut s: int = step_start
+
+    ui::print_step(s, total, "Enabling [multilib] repository...")
+    enable_multilib()
+    s += 1
+
+    ui::print_step(s, total, "Refreshing package databases (pacman -Syy)...")
+    run_in_container("sudo pacman -Syy --noconfirm", false)
+    s += 1
+
+    ui::print_step(s, total, "Upgrading base system (pacman -Syu)...")
+    run_in_container("sudo pacman -Syu --noconfirm", false)
+    s += 1
+
+    let pkgs: [string] = steam_packages()
+    ui::print_step(s, total, "Installing Steam + 32-bit libs (" + to_string(array_len(pkgs)) + " packages)...")
+    run_in_container("sudo pacman -S --noconfirm --needed " + iter_join(pkgs, " "), false)
+    s += 1
+
+    ui::print_step(s, total, "Optional: NVIDIA lib32 utils...")
+    if !run_in_container_ok("sudo pacman -S --noconfirm --needed " + iter_join(nvidia_packages(), " ")) is
+        ui::print_warning("NVIDIA lib32 skipped (no NVIDIA driver — that's fine).")
+    end
+end
+
+;; ──────────────────────────────────────────────
+;;  CREATE
+;; ──────────────────────────────────────────────
+
+pub fn create(force: bool) is
+    ui::print_header("Creating Container")
+
+    if exists() is
+        if force is
+            ui::print_warning("--force: removing existing container first...")
+            remove(false)
+        else is
+            ui::print_warning("Container " + container_name() + " already exists.")
+            ui::print_info("Use --force to recreate, or 'setup' to install Steam into existing container.")
+            return
+        end
+    end
+
+    let total: int = 6
+    ui::print_step(1, total, "Creating distrobox container (" + distro_image() + ")...")
+    run_cmd_must(["distrobox", "create", "--name", container_name(), "--image", distro_image(), "--yes"], false)
+
+    install_steam(2, total)
+
+    write("")
+    ui::print_divider()
+    ui::print_success("Container ready!  →  HackerOS-Steam run")
+    ui::print_divider()
+    write("")
+end
+
+;; ──────────────────────────────────────────────
+;;  SETUP
+;; ──────────────────────────────────────────────
+
+pub fn setup() is
+    ui::print_header("Setting Up Steam in Container")
+    if !exists() is
+        ui::print_error("Container does not exist. Run:  HackerOS-Steam create")
+        exit(1)
+    end
+
+    let total: int = 5
+    install_steam(1, total)
+
+    write("")
+    ui::print_divider()
+    ui::print_success("Setup complete!  →  HackerOS-Steam run")
+    ui::print_divider()
+    write("")
+end
+
+;; ──────────────────────────────────────────────
+;;  KILL / STOP
+;; ──────────────────────────────────────────────
+
+pub fn kill() is
+    ui::print_header("Stopping Container")
+    if !exists() is
+        ui::print_warning("Container " + container_name() + " does not exist.")
+        return
+    end
+    if !running() is
+        ui::print_info("Container is already stopped.")
+        return
+    end
+    ui::print_info("Stopping " + container_name() + "...")
+    run_cmd_must(["distrobox", "stop", "--yes", container_name()], false)
+    ui::print_success("Container stopped.")
+end
+
+;; ──────────────────────────────────────────────
+;;  REMOVE
+;; ──────────────────────────────────────────────
+
+pub fn remove(ask: bool) is
+    ui::print_header("Removing Container")
+    if !exists() is
+        ui::print_warning("Container " + container_name() + " does not exist.")
+        return
+    end
+    if ask && !ui::confirm("Permanently remove " + container_name() + "?") is
+        ui::print_info("Aborted.")
+        return
+    end
+    ui::print_info("Removing " + container_name() + "...")
+    run_cmd_must(["distrobox", "rm", "--yes", container_name()], false)
+    ui::print_success("Container removed.")
+end
+
+;; ──────────────────────────────────────────────
+;;  UPDATE
+;; ──────────────────────────────────────────────
+
+pub fn update() is
+    ui::print_header("Updating Container")
+    if !exists() is
+        ui::print_error("Container does not exist — create it first.")
+        exit(1)
+    end
+    ui::print_info("Running distrobox-upgrade...")
+    run_cmd_must(["distrobox-upgrade", container_name()], false)
+    ui::print_info("Upgrading packages inside container...")
+    run_in_container("sudo pacman -Syu --noconfirm", false)
+    ui::print_success("All packages updated.")
+end
+
+;; ──────────────────────────────────────────────
+;;  RESTART
+;; ──────────────────────────────────────────────
+
+pub fn restart(steam_flags: [string]) is
+    ui::print_header("Restarting Container")
+    if running() is
+        kill()
+    end
+    run_steam(steam_flags)
+end
+
+;; ──────────────────────────────────────────────
+;;  RUN STEAM
+;; ──────────────────────────────────────────────
+
+pub fn run_steam(flags: [string]) is
+    ui::print_header("Launching Steam")
+    if !exists() is
+        ui::print_error("Container does not exist — run:  HackerOS-Steam create")
+        exit(1)
+    end
+    if !run_in_container_ok("test -x /usr/bin/steam") is
+        ui::print_error("Steam is not installed in the container!")
+        ui::print_info("Fix it with:  HackerOS-Steam setup")
+        exit(1)
+    end
+
+    let mut flag_str: string = "(none)"
+    if array_len(flags) > 0 is flag_str = iter_join(flags, " ") end
+    ui::print_info("Container : " + container_name())
+    ui::print_info("Flags     : " + flag_str)
+    write("")
+
+    let mut args: [string] = ["distrobox", "enter", container_name(), "--", "/usr/bin/steam"]
+    let mut i: int = 0
+    while i < array_len(flags) is
+        args.push(flags[i])
+        i += 1
+    end
+    run_cmd_must(args, false)
+end
+
+;; ──────────────────────────────────────────────
+;;  STATUS
+;; ──────────────────────────────────────────────
+
+pub fn status() is
+    ui::print_header("Container Status")
+    if exists() is
+        let is_running: bool = running()
+        let mut state_color: string = colors::bright_yellow()
+        let mut state_label: string = "○ Stopped"
+        if is_running is
+            state_color = colors::bright_green()
+            state_label = "● Running"
+        end
+
+        let steam_ok: bool = run_in_container_ok("test -x /usr/bin/steam")
+        let mut steam_label: string = "✖ Not installed (run: setup)"
+        let mut steam_color: string = colors::red()
+        if steam_ok is
+            steam_label = "✔ Installed"
+            steam_color = colors::bright_green()
+        end
+
+        let multilib_ok: bool = run_in_container_ok("grep -q '^\\[multilib\\]' /etc/pacman.conf")
+        let mut multilib_label: string = "✖ Disabled"
+        let mut multilib_color: string = colors::yellow()
+        if multilib_ok is
+            multilib_label = "✔ Enabled"
+            multilib_color = colors::bright_green()
+        end
+
+        ui::print_status_row("Container:", container_name(), colors::bright_white())
+        ui::print_status_row("Image:", distro_image(), colors::bright_black())
+        ui::print_status_row("Status:", state_label, state_color)
+        ui::print_status_row("Steam:", steam_label, steam_color)
+        ui::print_status_row("multilib:", multilib_label, multilib_color)
+
+        let dl: string = detail_line()
+        if string_len(dl) > 0 is
+            ui::print_divider()
+            ui::print_info(string_trim(dl))
+        end
+    else is
+        ui::print_status_row("Container:", container_name(), colors::bright_black())
+        ui::print_status_row("Status:", "✖ Does not exist", colors::red())
+        write("")
+        ui::print_info("Create with:  HackerOS-Steam create")
+    end
+    write("")
+end
+
+;; ──────────────────────────────────────────────
+;;  LIST
+;; ──────────────────────────────────────────────
+
+pub fn list() is
+    ui::print_header("All Distrobox Containers")
+    run_cmd_must(["distrobox", "list"], false)
+end
+
+;; ──────────────────────────────────────────────
+;;  INSTALL EXTRA PACKAGES
+;; ──────────────────────────────────────────────
+
+pub fn install_packages(packages: [string]) is
+    ui::print_header("Installing Packages")
+    if !exists() is
+        ui::print_error("Container does not exist — create it first.")
+        exit(1)
+    end
+    ui::print_info("Packages: " + iter_join(packages, ", "))
+    run_in_container("sudo pacman -S --noconfirm --needed " + iter_join(packages, " "), false)
+    ui::print_success("Done — " + to_string(array_len(packages)) + " package(s) installed.")
+end
+
+;; ──────────────────────────────────────────────
+;;  EXPORT APP
+;; ──────────────────────────────────────────────
+
+pub fn export_app() is
+    ui::print_header("Exporting Steam to Host")
+    if !exists() is
+        ui::print_error("Container does not exist — run:  HackerOS-Steam create")
+        exit(1)
+    end
+    ui::print_info("Exporting Steam desktop entry to host...")
+    run_in_container("distrobox-export --app steam --export-label ' (HackerOS)'", false)
+    ui::print_success("Steam exported. It should now appear in your app launcher.")
+end
+
+;; ──────────────────────────────────────────────
+;;  LOGS
+;; ──────────────────────────────────────────────
+
+pub fn logs(lines: int) is
+    ui::print_header("Steam Logs")
+    if !exists() is
+        ui::print_error("Container does not exist.")
+        exit(1)
+    end
+    let log_path: string = "~/.steam/steam/logs/bootstrap_log.txt"
+    run_in_container("tail -n " + to_string(lines) + " " + log_path +
+                      " 2>/dev/null || echo '(no log found at " + log_path + ")'", false)
+end
+
+;; ──────────────────────────────────────────────
+;;  SHELL
+;; ──────────────────────────────────────────────
+
+pub fn shell() is
+    ui::print_header("Container Shell")
+    if !exists() is
+        ui::print_error("Container does not exist — run:  HackerOS-Steam create")
+        exit(1)
+    end
+    ui::print_info("Opening shell in " + container_name() + "... (type 'exit' to leave)")
+    run_cmd_must(["distrobox", "enter", container_name()], false)
+end
+
+;; ── libc exit(), same FFI pattern bit-main/src/main.h# already uses ──
+extern static [c] is
+    fn exit(code: int)
+end
