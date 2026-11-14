@@ -1,0 +1,296 @@
+mod menu
+mod styles
+mod utils
+
+use "bit -> tui" from "tui"
+use "std -> process" from "process"
+
+pub fn cli_path() -> string is return "/usr/bin/hackeros-steam" end
+
+pub struct Model is
+    pub cli_path:         string
+    pub state:             string   ;; "menu" | "running" | "confirm"
+    pub cursor:            int
+    pub width:             int
+    pub height:            int
+    pub container_status:  string   ;; "checking" | "running" | "stopped" | "missing"
+    pub log_lines:         [string]
+    pub spinner:           any
+    pub busy:              bool
+    pub pending_cmd:       [string]
+end
+
+pub fn new_model(path: string) -> Model is
+    let sp: any = tui::spinner_new("dot")
+    let mut lines: [string] = []
+    lines.push(tui::style_render(styles::style_log_header(), "  HackerOS Steam TUI — ready."))
+    lines.push(tui::style_render(styles::style_log_dim(), "  Use ↑/↓ to navigate, Enter to execute."))
+
+    return Model {
+        cli_path: path,
+        state: "menu",
+        cursor: 0,
+        width: 100,
+        height: 32,
+        container_status: "checking",
+        log_lines: lines,
+        spinner: sp,
+        busy: false,
+        pending_cmd: [],
+    }
+end
+
+;; ── functional "setters" — each returns a new Model ──
+
+fn with_cursor(m: Model, c: int) -> Model is
+    return Model { cli_path: m.cli_path, state: m.state, cursor: c, width: m.width, height: m.height,
+        container_status: m.container_status, log_lines: m.log_lines, spinner: m.spinner,
+        busy: m.busy, pending_cmd: m.pending_cmd }
+end
+
+fn with_dims(m: Model, w: int, h: int) -> Model is
+    return Model { cli_path: m.cli_path, state: m.state, cursor: m.cursor, width: w, height: h,
+        container_status: m.container_status, log_lines: m.log_lines, spinner: m.spinner,
+        busy: m.busy, pending_cmd: m.pending_cmd }
+end
+
+fn with_spinner(m: Model, sp: any) -> Model is
+    return Model { cli_path: m.cli_path, state: m.state, cursor: m.cursor, width: m.width, height: m.height,
+        container_status: m.container_status, log_lines: m.log_lines, spinner: sp,
+        busy: m.busy, pending_cmd: m.pending_cmd }
+end
+
+fn with_state(m: Model, s: string) -> Model is
+    return Model { cli_path: m.cli_path, state: s, cursor: m.cursor, width: m.width, height: m.height,
+        container_status: m.container_status, log_lines: m.log_lines, spinner: m.spinner,
+        busy: m.busy, pending_cmd: m.pending_cmd }
+end
+
+fn with_status(m: Model, s: string) -> Model is
+    return Model { cli_path: m.cli_path, state: m.state, cursor: m.cursor, width: m.width, height: m.height,
+        container_status: s, log_lines: m.log_lines, spinner: m.spinner,
+        busy: m.busy, pending_cmd: m.pending_cmd }
+end
+
+fn with_busy(m: Model, b: bool) -> Model is
+    return Model { cli_path: m.cli_path, state: m.state, cursor: m.cursor, width: m.width, height: m.height,
+        container_status: m.container_status, log_lines: m.log_lines, spinner: m.spinner,
+        busy: b, pending_cmd: m.pending_cmd }
+end
+
+fn with_pending(m: Model, cmd: [string]) -> Model is
+    return Model { cli_path: m.cli_path, state: m.state, cursor: m.cursor, width: m.width, height: m.height,
+        container_status: m.container_status, log_lines: m.log_lines, spinner: m.spinner,
+        busy: m.busy, pending_cmd: cmd }
+end
+
+pub fn append_log(m: Model, line: string) -> Model is
+    let mut lines: [string] = m.log_lines
+    lines.push(line)
+    return Model { cli_path: m.cli_path, state: m.state, cursor: m.cursor, width: m.width, height: m.height,
+        container_status: m.container_status, log_lines: lines, spinner: m.spinner,
+        busy: m.busy, pending_cmd: m.pending_cmd }
+end
+
+;; ── shell helpers (mirrors container.h#'s exit-code marker trick — see
+;;    its own long comment for why `std -> process` needs this) ──
+
+fn rc_marker() -> string is return "__HSH_RC__" end
+
+fn shell_quote(s: string) -> string is
+    return "'" + string_replace_all(s, "'", "'\\''") + "'"
+end
+
+fn shell_quote_join(args: [string]) -> string is
+    let mut parts: [string] = []
+    let mut i: int = 0
+    while i < array_len(args) is
+        parts.push(shell_quote(args[i]))
+        i += 1
+    end
+    return iter_join(parts, " ")
+end
+
+fn last_nonempty_line(s: string) -> string is
+    let parts: [string] = string_split(s, "\n")
+    let mut i: int = array_len(parts) - 1
+    while i >= 0 is
+        let line: string = string_trim(parts[i])
+        if string_len(line) > 0 is return line end
+        i -= 1
+    end
+    return ""
+end
+
+;; ── Cmd factories ──
+
+fn run_command_cmd(path: string, args: [string]) -> fn() -> any is
+    let mut full: [string] = [path]
+    let mut i: int = 0
+    while i < array_len(args) is
+        full.push(args[i])
+        i += 1
+    end
+    let cmd_str: string = shell_quote_join(full)
+
+    return || -> any is
+        let raw: string = process::run(cmd_str + "; printf '\\n" + rc_marker() + "%d\\n' $?")
+        let ok: bool = last_nonempty_line(raw) == (rc_marker() + "0")
+        let stripped: string = utils::strip_ansi(raw)
+        let lines: [string] = string_split(stripped, "\n")
+        let mut kept: [string] = []
+        let mut j: int = 0
+        while j < array_len(lines) is
+            if !string_starts_with(string_trim(lines[j]), rc_marker()) is
+                kept.push(lines[j])
+            end
+            j += 1
+        end
+        let mut payload: string = "ERR"
+        if ok is payload = "OK" end
+        return tui::custom_msg("BATCH:" + payload + "\n" + iter_join(kept, "\n"))
+    end
+end
+
+fn check_status_cmd(path: string) -> fn() -> any is
+    return || -> any is
+        let out: string = process::run(shell_quote(path) + " status 2>/dev/null")
+        let lo: string = string_lower(out)
+        if string_contains(lo, "does not exist") || string_contains(lo, "not created") is
+            return tui::custom_msg("STATUS:missing")
+        end
+        if string_contains(lo, "● running") || string_contains(lo, "running") is
+            return tui::custom_msg("STATUS:running")
+        end
+        return tui::custom_msg("STATUS:stopped")
+    end
+end
+
+;; ── exec_command: shared by "enter on a normal item" and "y on confirm" ──
+
+fn exec_command(m: Model, args: [string]) -> (Model, fn() -> any) is
+    let mut m1: Model = with_busy(m, true)
+    m1 = with_state(m1, "running")
+    m1 = append_log(m1, "")
+    m1 = append_log(m1, tui::style_render(styles::style_log_info(), "  $ hackeros-steam " + iter_join(args, " ")))
+    m1 = append_log(m1, "")
+    return (m1, run_command_cmd(m1.cli_path, args))
+end
+
+;; ── init / update ──
+
+pub fn init() -> any is
+    return new_model(cli_path())
+end
+
+pub fn update(model_any: any, msg: any) -> (any, fn() -> any) is
+    let model: Model = model_any
+    ;; keep terminal size fresh — carried on every tick (and any resize)
+    if tui::msg_is_tick(msg) || tui::msg_is_resize(msg) is
+        let w: int = tui::msg_width(msg)
+        let h: int = tui::msg_height(msg)
+        let next_w: int = if w > 0 then w else model.width
+        let next_h: int = if h > 0 then h else model.height
+        let m1: Model = with_dims(model, next_w, next_h)
+        let m2: Model = with_spinner(m1, tui::spinner_tick(model.spinner))
+        return (m2, tui::cmd_none())
+    end
+
+    if tui::msg_is_key(msg, "q") && model.state == "menu" is
+        return (model, tui::cmd_quit())
+    end
+
+    if (tui::msg_is_key(msg, "up") || tui::msg_is_key(msg, "k")) && model.state == "menu" is
+        if model.cursor > 0 is
+            return (with_cursor(model, model.cursor - 1), tui::cmd_none())
+        end
+        return (model, tui::cmd_none())
+    end
+    if (tui::msg_is_key(msg, "down") || tui::msg_is_key(msg, "j")) && model.state == "menu" is
+        if model.cursor < array_len(menu::menu_items()) - 1 is
+            return (with_cursor(model, model.cursor + 1), tui::cmd_none())
+        end
+        return (model, tui::cmd_none())
+    end
+
+    if (tui::msg_is_key(msg, "enter") || tui::msg_is_key(msg, "space")) && model.state == "menu" is
+        if !model.busy is
+            let item: menu::MenuItem = menu::menu_items()[model.cursor]
+            if item.confirm is
+                let m1: Model = with_state(model, "confirm")
+                return (with_pending(m1, item.cmd), tui::cmd_none())
+            else is
+                let (m2, cmd) = exec_command(model, item.cmd)
+                return (m2, cmd)
+            end
+        end
+        return (model, tui::cmd_none())
+    end
+
+    if tui::msg_is_key(msg, "r") && model.state == "menu" is
+        return (model, check_status_cmd(model.cli_path))
+    end
+
+    if model.state == "confirm" is
+        if tui::msg_is_key(msg, "y") is
+            let cmd_to_run: [string] = model.pending_cmd
+            let m1: Model = with_pending(model, [])
+            let m2: Model = with_state(m1, "menu")
+            let (m3, cmd) = exec_command(m2, cmd_to_run)
+            return (m3, cmd)
+        end
+        if tui::msg_is_key(msg, "n") || tui::msg_is_key(msg, "esc") is
+            let m1: Model = with_pending(model, [])
+            let m2: Model = with_state(m1, "menu")
+            let m3: Model = append_log(m2, tui::style_render(styles::style_log_dim(), "  Aborted."))
+            return (m3, tui::cmd_none())
+        end
+        return (model, tui::cmd_none())
+    end
+
+    if tui::msg_is_custom(msg) is
+        let data: string = tui::msg_data(msg)
+
+        if string_starts_with(data, "STATUS:") is
+            return (with_status(model, string_slice(data, 7, string_len(data))), tui::cmd_none())
+        end
+
+        if string_starts_with(data, "BATCH:") is
+            let body: string = string_slice(data, 6, string_len(data))
+            let nl: int = string_find(body, "\n")
+            let mut ok_tag: string = body
+            let mut rest: string = ""
+            if nl >= 0 is
+                ok_tag = string_slice(body, 0, nl)
+                rest = string_slice(body, nl + 1, string_len(body))
+            end
+
+            let out_lines: [string] = string_split(rest, "\n")
+            let mut m1: Model = model
+            let mut k: int = 0
+            while k < array_len(out_lines) is
+                let line: string = out_lines[k]
+                if string_len(string_trim(line)) == 0 is
+                    m1 = append_log(m1, "")
+                else is
+                    m1 = append_log(m1, utils::color_line(line))
+                end
+                k += 1
+            end
+
+            m1 = with_busy(m1, false)
+            m1 = with_state(m1, "menu")
+            if ok_tag == "OK" is
+                m1 = append_log(m1, tui::style_render(styles::style_log_success(), "  ✔  Done."))
+            else is
+                m1 = append_log(m1, tui::style_render(styles::style_log_error(), "  ✖  Command exited with error."))
+            end
+            m1 = append_log(m1, "")
+            return (m1, check_status_cmd(m1.cli_path))
+        end
+
+        return (model, tui::cmd_none())
+    end
+
+    return (model, tui::cmd_none())
+end
