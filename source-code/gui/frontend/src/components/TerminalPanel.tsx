@@ -11,9 +11,9 @@ export function TerminalPanel() {
   return (
     <div class="terminal-panel">
       <div class="terminal-header">
-        <span class="wm-dot dot-red">●</span>
-        <span class="wm-dot dot-yellow">●</span>
-        <span class="wm-dot dot-green">●</span>
+        <span class="wm-dot dot-red" />
+        <span class="wm-dot dot-yellow" />
+        <span class="wm-dot dot-green" />
         <span class="terminal-title">Output Log</span>
       </div>
       <pre class="terminal-body" ref={body}>{store.log()}</pre>
