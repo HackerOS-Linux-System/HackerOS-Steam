@@ -2,6 +2,44 @@ mod colors
 
 use "std -> cli" from "cli"
 
+;; ── glyphs: Unicode for terminals, plain ASCII in --plain mode (GUI log, pipes) ──
+pub fn g_ok() -> string is
+    if colors::plain() is return "[ok]" end
+    return "✔"
+end
+pub fn g_err() -> string is
+    if colors::plain() is return "[x]" end
+    return "✖"
+end
+pub fn g_warn() -> string is
+    if colors::plain() is return "[!]" end
+    return "⚠"
+end
+pub fn g_info() -> string is
+    if colors::plain() is return "->" end
+    return "→"
+end
+pub fn g_run() -> string is
+    if colors::plain() is return "*" end
+    return "●"
+end
+pub fn g_stop() -> string is
+    if colors::plain() is return "o" end
+    return "○"
+end
+fn g_rule() -> string is
+    if colors::plain() is return "-" end
+    return "─"
+end
+fn g_full() -> string is
+    if colors::plain() is return "#" end
+    return "█"
+end
+fn g_empty() -> string is
+    if colors::plain() is return "." end
+    return "░"
+end
+
 fn banner_art() -> string is
     return "\n" + colors::bold() + colors::bright_cyan() + "\n" +
         "  ██╗  ██╗ █████╗  ██████╗██╗  ██╗███████╗██████╗  ██████╗ ███████╗\n" +
@@ -13,6 +51,8 @@ fn banner_art() -> string is
 end
 
 pub fn print_banner() is
+    ;; --plain / NO_COLOR: no banner at all (the GUI log and scripts want only the real output)
+    if colors::plain() is return end
     write(banner_art())
 
     let term_width: int = 72
@@ -20,29 +60,29 @@ pub fn print_banner() is
     let mut padding: int = (term_width - string_len(subtitle)) / 2
     if padding < 0 is padding = 0 end
 
-    write(colors::bold() + colors::bright_black() + string_repeat("─", 72) + colors::reset())
+    write(colors::bold() + colors::bright_black() + string_repeat(g_rule(), 72) + colors::reset())
     write(string_repeat(" ", padding) + colors::bright_magenta() + colors::bold() + subtitle + colors::reset())
-    write(colors::bold() + colors::bright_black() + string_repeat("─", 72) + colors::reset())
+    write(colors::bold() + colors::bright_black() + string_repeat(g_rule(), 72) + colors::reset())
     write("")
 end
 
 pub fn print_success(msg: string) is
-    write("  " + colors::bold() + colors::bright_green() + "✔" + colors::reset() +
+    write("  " + colors::bold() + colors::bright_green() + g_ok() + colors::reset() +
           "  " + colors::white() + msg + colors::reset())
 end
 
 pub fn print_info(msg: string) is
-    write("  " + colors::bold() + colors::bright_blue() + "→" + colors::reset() +
+    write("  " + colors::bold() + colors::bright_blue() + g_info() + colors::reset() +
           "  " + colors::bright_black() + msg + colors::reset())
 end
 
 pub fn print_warning(msg: string) is
-    write("  " + colors::bold() + colors::bright_yellow() + "⚠" + colors::reset() +
+    write("  " + colors::bold() + colors::bright_yellow() + g_warn() + colors::reset() +
           "  " + colors::yellow() + msg + colors::reset())
 end
 
 pub fn print_error(msg: string) is
-    write("  " + colors::bold() + colors::bright_red() + "✖" + colors::reset() +
+    write("  " + colors::bold() + colors::bright_red() + g_err() + colors::reset() +
           "  " + colors::red() + msg + colors::reset())
 end
 
@@ -51,8 +91,8 @@ pub fn print_header(title: string) is
     if dashes < 0 is dashes = 0 end
 
     write("")
-    write("  " + colors::bold() + colors::bright_cyan() + "┌─ " + string_upper_local(title) +
-          " " + colors::bright_black() + string_repeat("─", dashes) + colors::reset())
+    write("  " + colors::bold() + colors::bright_cyan() + if_plain_header() + string_upper_local(title) +
+          " " + colors::bright_black() + string_repeat(g_rule(), dashes) + colors::reset())
     write("")
 end
 
@@ -61,8 +101,8 @@ pub fn print_step(step: int, total: int, msg: string) is
     if total > 0 is pct = step * 100 / total end
 
     let bar_filled: int = pct * 20 / 100
-    let bar: string = colors::bright_green() + string_repeat("█", bar_filled) +
-                       colors::bright_black() + string_repeat("░", 20 - bar_filled) + colors::reset()
+    let bar: string = colors::bright_green() + string_repeat(g_full(), bar_filled) +
+                       colors::bright_black() + string_repeat(g_empty(), 20 - bar_filled) + colors::reset()
 
     write("  " + colors::bold() + colors::bright_black() + "[" + colors::bright_cyan() +
           pad_left_int(step, 2) + "/" + to_string(total) + colors::bright_black() + "]" + colors::reset() +
@@ -76,7 +116,7 @@ pub fn print_status_row(label: string, value: string, color: string) is
 end
 
 pub fn print_divider() is
-    write("  " + colors::bright_black() + string_repeat("─", 68) + colors::reset())
+    write("  " + colors::bright_black() + string_repeat(g_rule(), 68) + colors::reset())
 end
 
 pub fn print_help_row(cmd: string, desc: string) is
@@ -90,6 +130,11 @@ pub fn confirm(prompt: string) -> bool is
 end
 
 ;; ── small local helpers (kept private, mirror Go's strings.Repeat/ToUpper) ──
+
+fn if_plain_header() -> string is
+    if colors::plain() is return "== " end
+    return "┌─ "
+end
 
 fn string_upper_local(s: string) -> string is
     return string_upper(s)
