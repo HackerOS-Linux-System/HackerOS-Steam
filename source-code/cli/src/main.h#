@@ -30,9 +30,17 @@ fn print_help() is
     ui::print_help_row("export", "Export Steam app entry to host desktop")
     ui::print_help_row("logs [N]", "Show last N lines of Steam logs (default: 50)")
     ui::print_help_row("shell", "Open an interactive shell inside the container")
+    ui::print_help_row("doctor", "Check the host (distrobox, podman/docker, GPU, display)")
+    ui::print_help_row("version", "Print version")
     ui::print_help_row("gui", "Launch GTK4 GUI  (/usr/share/HackerOS/Scripts/Steam/bin/gui)")
     ui::print_help_row("tui", "Launch terminal TUI  (/usr/share/HackerOS/Scripts/Steam/bin/tui)")
     ui::print_divider()
+    write("")
+    write("  " + colors::bold() + colors::white() + "GLOBAL FLAGS" + colors::reset())
+    ui::print_help_row("--force", "Skip confirmations / recreate (create, remove)")
+    ui::print_help_row("--plain", "No banner, colours or Unicode symbols (used by the GUI)")
+    ui::print_help_row("--porcelain", "Machine-readable output (status -> running|stopped|missing)")
+    ui::print_help_row("-h, --help", "This help")
     write("")
     write("  " + colors::bold() + colors::white() + "EXAMPLES" + colors::reset())
     write("  " + colors::bright_black() + "HackerOS-Steam create" + colors::reset())
@@ -62,6 +70,7 @@ fn main() is
     ;; Extract flags (mirrors Go's filtered-slice trick)
     let mut force:    bool     = false
     let mut help:     bool     = false
+    let mut porcelain: bool    = false
     let mut args:     [string] = []
 
     let mut i: int = 1 ;; skip argv[0]
@@ -69,6 +78,11 @@ fn main() is
         let a: string = raw_args[i]
         if a == "--force" is
             force = true
+        else if a == "--plain" is
+            env::set("HACKEROS_STEAM_PLAIN", "1")
+        else if a == "--porcelain" is
+            porcelain = true
+            env::set("HACKEROS_STEAM_PLAIN", "1")
         else if a == "--help" || a == "-h" is
             help = true
         else is
@@ -93,6 +107,11 @@ fn main() is
         j += 1
     end
 
+    if command == "version" || command == "--version" || command == "-V" is
+        write("hackeros-steam " + container::version())
+        exit(0)
+    end
+
     ui::print_banner()
 
     if command == "create" is
@@ -110,7 +129,13 @@ fn main() is
     else if command == "restart" is
         container::restart(rest)
     else if command == "status" is
-        container::status()
+        if porcelain is
+            container::status_porcelain()
+        else is
+            container::status()
+        end
+    else if command == "doctor" is
+        container::doctor()
     else if command == "list" || command == "ls" is
         container::list()
     else if command == "install" is
@@ -124,7 +149,7 @@ fn main() is
     else if command == "logs" is
         let mut lines: int = 50
         if array_len(rest) > 0 is
-            lines = str_to_int(rest[0])
+            lines = str_to_int(string_trim(rest[0]))
         end
         container::logs(lines)
     else if command == "shell" || command == "sh" is
