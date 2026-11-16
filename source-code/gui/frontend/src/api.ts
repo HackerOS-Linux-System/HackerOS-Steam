@@ -1,9 +1,11 @@
-export type ContainerStatus = 'checking' | 'running' | 'stopped' | 'missing';
+export type ContainerStatus = 'checking' | 'running' | 'stopped' | 'missing' | 'error';
 
 export interface SteamState {
   log: string;
   status: ContainerStatus;
   busy: boolean;
+  /** false when the hackeros-steam CLI binary could not be found by the back-end */
+  cli?: boolean;
 }
 
 export interface CommandResult { ok: boolean }
@@ -22,6 +24,8 @@ interface Commands {
   cmd_logs:        { args: undefined;              result: CommandResult };
   cmd_status:      { args: undefined;              result: CommandResult };
   cmd_clear:       { args: undefined;              result: CommandResult };
+  cmd_doctor:      { args: undefined;              result: CommandResult };
+  cmd_list:        { args: undefined;              result: CommandResult };
   cmd_install:     { args: { pkgs: string };       result: CommandResult };
   cmd_shell:       { args: undefined;              result: CommandResult };
 }
