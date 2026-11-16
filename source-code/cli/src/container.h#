@@ -127,33 +127,49 @@ pub fn run_in_container_ok(bash_cmd: string) -> bool is
     return run_cmd(["distrobox", "enter", container_name(), "--", "bash", "-c", bash_cmd], true)
 end
 
-pub fn exists() -> bool is
-    let out: string = process::run("distrobox list --no-color")
-    return string_contains(out, container_name())
-end
+pub fn version() -> string is return "2.3.0" end
 
-pub fn running() -> bool is
-    let out: string = process::run("distrobox list --no-color")
+;; `distrobox list` prints  ID | NAME | STATUS | IMAGE  — find OUR row by comparing the
+;; NAME column exactly (the old `string_contains(out, name)` also matched e.g. a container
+;; called "HackerOS-Steam-test", reporting it as ours). Returns the trimmed row or "".
+fn find_row() -> string is
+    let out: string = process::run("distrobox list --no-color 2>/dev/null")
     let lines: [string] = string_split(out, "\n")
     let mut i: int = 0
     while i < array_len(lines) is
-        if string_contains(lines[i], container_name()) && string_contains(lines[i], "Up") is
-            return true
+        let cols: [string] = string_split(lines[i], "|")
+        if array_len(cols) >= 3 && string_trim(cols[1]) == container_name() is
+            return string_trim(lines[i])
         end
         i += 1
     end
-    return false
+    return ""
+end
+
+pub fn exists() -> bool is
+    return string_len(find_row()) > 0
+end
+
+;; STATUS column looks like "Up 5 minutes" / "Exited (0) 2 hours ago" / "Created".
+pub fn running() -> bool is
+    let row: string = find_row()
+    if string_len(row) == 0 is return false end
+    let cols: [string] = string_split(row, "|")
+    return string_starts_with(string_trim(cols[2]), "Up")
 end
 
 pub fn detail_line() -> string is
-    let out: string = process::run("distrobox list --no-color")
-    let lines: [string] = string_split(out, "\n")
-    let mut i: int = 0
-    while i < array_len(lines) is
-        if string_contains(lines[i], container_name()) is return lines[i] end
-        i += 1
-    end
-    return ""
+    return find_row()
+end
+
+;; One machine-readable word — used by `status --porcelain` (GUI/TUI/scripts):
+;; "missing" | "stopped" | "running".
+pub fn status_word() -> string is
+    let row: string = find_row()
+    if string_len(row) == 0 is return "missing" end
+    let cols: [string] = string_split(row, "|")
+    if string_starts_with(string_trim(cols[2]), "Up") is return "running" end
+    return "stopped"
 end
 
 ;; Quote+join argv into a single shell-safe command string (single
@@ -371,30 +387,34 @@ end
 ;;  STATUS
 ;; ──────────────────────────────────────────────
 
+pub fn status_porcelain() is
+    write(status_word())
+end
+
 pub fn status() is
     ui::print_header("Container Status")
     if exists() is
         let is_running: bool = running()
         let mut state_color: string = colors::bright_yellow()
-        let mut state_label: string = "○ Stopped"
+        let mut state_label: string = ui::g_stop() + " Stopped"
         if is_running is
             state_color = colors::bright_green()
-            state_label = "● Running"
+            state_label = ui::g_run() + " Running"
         end
 
         let steam_ok: bool = run_in_container_ok("test -x /usr/bin/steam")
-        let mut steam_label: string = "✖ Not installed (run: setup)"
+        let mut steam_label: string = ui::g_err() + " Not installed (run: setup)"
         let mut steam_color: string = colors::red()
         if steam_ok is
-            steam_label = "✔ Installed"
+            steam_label = ui::g_ok() + " Installed"
             steam_color = colors::bright_green()
         end
 
         let multilib_ok: bool = run_in_container_ok("grep -q '^\\[multilib\\]' /etc/pacman.conf")
-        let mut multilib_label: string = "✖ Disabled"
+        let mut multilib_label: string = ui::g_err() + " Disabled"
         let mut multilib_color: string = colors::yellow()
         if multilib_ok is
-            multilib_label = "✔ Enabled"
+            multilib_label = ui::g_ok() + " Enabled"
             multilib_color = colors::bright_green()
         end
 
@@ -411,7 +431,7 @@ pub fn status() is
         end
     else is
         ui::print_status_row("Container:", container_name(), colors::bright_black())
-        ui::print_status_row("Status:", "✖ Does not exist", colors::red())
+        ui::print_status_row("Status:", ui::g_err() + " Does not exist", colors::red())
         write("")
         ui::print_info("Create with:  HackerOS-Steam create")
     end
@@ -431,8 +451,30 @@ end
 ;;  INSTALL EXTRA PACKAGES
 ;; ──────────────────────────────────────────────
 
+fn valid_pkg(name: string) -> bool is
+    let allowed: string = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@._+-"
+    let n: int = string_len(name)
+    if n == 0 is return false end
+    let mut i: int = 0
+    while i < n is
+        if !string_contains(allowed, string_slice(name, i, i + 1)) is return false end
+        i += 1
+    end
+    return true
+end
+
 pub fn install_packages(packages: [string]) is
     ui::print_header("Installing Packages")
+    ;; the names are pasted into a `bash -c` string inside the container — refuse anything that
+    ;; is not a plain pacman package name (no spaces, quotes, ;, $, &, | …) instead of passing it on
+    let mut k: int = 0
+    while k < array_len(packages) is
+        if !valid_pkg(packages[k]) is
+            ui::print_error("Invalid package name: '" + packages[k] + "'")
+            exit(1)
+        end
+        k += 1
+    end
     if !exists() is
         ui::print_error("Container does not exist — create it first.")
         exit(1)
@@ -461,8 +503,11 @@ end
 ;;  LOGS
 ;; ──────────────────────────────────────────────
 
-pub fn logs(lines: int) is
+pub fn logs(lines_in: int) is
     ui::print_header("Steam Logs")
+    let mut lines: int = lines_in
+    if lines <= 0 is lines = 50 end
+    if lines > 5000 is lines = 5000 end
     if !exists() is
         ui::print_error("Container does not exist.")
         exit(1)
@@ -487,6 +532,65 @@ pub fn shell() is
         ui::print_error("Command failed: distrobox enter " + container_name())
         exit(1)
     end
+end
+
+
+;; ──────────────────────────────────────────────
+;;  DOCTOR  (host diagnostics — why won't create/run work?)
+;; ──────────────────────────────────────────────
+
+fn tool_row(label: string, bin: string, required: bool) -> bool is
+    let p: string = process::which(bin)
+    if string_len(p) > 0 is
+        ui::print_status_row(label, ui::g_ok() + " " + p, colors::bright_green())
+        return true
+    end
+    if required is
+        ui::print_status_row(label, ui::g_err() + " not found", colors::red())
+    else is
+        ui::print_status_row(label, ui::g_warn() + " not found (optional)", colors::yellow())
+    end
+    return false
+end
+
+pub fn doctor() is
+    ui::print_header("Host Diagnostics")
+    let mut problems: int = 0
+
+    if !tool_row("distrobox:", "distrobox", true) is problems += 1 end
+    let has_podman: bool = tool_row("podman:", "podman", false)
+    let has_docker: bool = tool_row("docker:", "docker", false)
+    if !has_podman && !has_docker is
+        ui::print_status_row("container engine:", ui::g_err() + " need podman or docker", colors::red())
+        problems += 1
+    end
+    tool_row("distrobox-export:", "distrobox-export", false)
+    tool_row("nvidia-smi:", "nvidia-smi", false)
+
+    let drm: string = string_trim(process::run("ls /dev/dri 2>/dev/null | head -n 3 | tr '\\n' ' '"))
+    if string_len(drm) > 0 is
+        ui::print_status_row("GPU (/dev/dri):", ui::g_ok() + " " + drm, colors::bright_green())
+    else is
+        ui::print_status_row("GPU (/dev/dri):", ui::g_warn() + " no render node (games will be slow)", colors::yellow())
+    end
+
+    let wl: string = string_trim(process::run("printf '%s' \"$WAYLAND_DISPLAY\""))
+    let x11: string = string_trim(process::run("printf '%s' \"$DISPLAY\""))
+    if string_len(wl) > 0 || string_len(x11) > 0 is
+        ui::print_status_row("Display:", ui::g_ok() + " " + wl + " " + x11, colors::bright_green())
+    else is
+        ui::print_status_row("Display:", ui::g_err() + " no WAYLAND_DISPLAY / DISPLAY", colors::red())
+        problems += 1
+    end
+
+    ui::print_status_row("Container:", status_word(), colors::bright_white())
+    write("")
+    if problems == 0 is
+        ui::print_success("No problems found.")
+    else is
+        ui::print_error(to_string(problems) + " problem(s) found - fix them before create/run.")
+    end
+    write("")
 end
 
 ;; ── libc exit(), same FFI pattern bit-main/src/main.h# already uses ──
